@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multiverse Cricket V3</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Orbitron:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ['Inter', 'sans-serif'], orbitron: ['Orbitron', 'sans-serif'] },
+            animation: {
+              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'bounce-slow': 'bounce 3s infinite',
+              'fade-in': 'fade-in 0.5s ease-out forwards',
+              'slide-up': 'slide-up 0.5s ease-out forwards',
+              'scale-in': 'scale-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards',
+              'reveal-glow': 'reveal-glow 1s ease-out forwards',
+            },
+            keyframes: {
+              'fade-in': { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+              'slide-up': { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+              'scale-in': { '0%': { opacity: '0', transform: 'scale(0.9)' }, '100%': { opacity: '1', transform: 'scale(1)' } },
+              'reveal-glow': {
+                '0%': { boxShadow: '0 0 0 rgba(255,255,255,0)' },
+                '50%': { boxShadow: '0 0 50px rgba(168,85,247,0.5)' },
+                '100%': { boxShadow: '0 0 20px rgba(168,85,247,0.2)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      h1, h2, h3, h4, h5, h6 { font-family: 'Orbitron', sans-serif; letter-spacing: 0.05em; }
+      .cosmic-bg { background: radial-gradient(circle at 50% 50%, #171032 0%, #0b0f19 60%, #030712 100%); position: relative; overflow: hidden; }
+      .cosmic-bg::before {
+        content: ""; position: absolute; top: 0; left: 0; width: 200%; height: 200%;
+        background-image: 
+          radial-gradient(1px 1px at 20px 30px, #ffffff 100%, rgba(0,0,0,0)),
+          radial-gradient(1.5px 1.5px at 150px 45px, #d8b4fe 100%, rgba(0,0,0,0)),
+          radial-gradient(1px 1px at 60px 120px, #ffffff 100%, rgba(0,0,0,0));
+        background-repeat: repeat; background-size: 400px 400px; opacity: 0.45; pointer-events: none;
+      }
+      .glassmorphism { background: rgba(15, 23, 42, 0.45); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+      .glassmorphism-card { background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); transition: all 0.3s; }
+      .shimmer-text { background-size: 200% auto; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: shimmer 3s linear infinite; background-image: linear-gradient(to right, #a855f7 0%, #c084fc 20%, #2dd4bf 40%, #06b6d4 60%, #a855f7 100%); }
+      @keyframes shimmer { to { background-position: 200% center; } }
+      
+      /* --- Coin Animation --- */
+      .coin { perspective: 1000px; }
+      .coin-inner { transform-style: preserve-3d; }
+      .coin-face { backface-visibility: hidden; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; border-radius: 9999px; }
+      .coin-back { transform: rotateY(180deg); }
+
+      @keyframes coin-flip-heads {
+        0% { transform: translateY(0) rotateY(0deg); }
+        50% { transform: translateY(-120px) rotateY(1080deg); }
+        100% { transform: translateY(0) rotateY(2160deg); }
+      }
+      @keyframes coin-flip-tails {
+        0% { transform: translateY(0) rotateY(0deg); }
+        50% { transform: translateY(-120px) rotateY(1080deg); }
+        100% { transform: translateY(0) rotateY(2340deg); }
+      }
+      .animate-coin-heads { animation: coin-flip-heads 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+      .animate-coin-tails { animation: coin-flip-tails 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+    </style>
+  </head>
+  <body class="bg-slate-950 text-slate-100 font-sans min-h-screen overflow-x-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      // --- Icons ---
+      const IconStar = () => <svg className="w-3 h-3 text-purple-400 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
+
+      // --- Storage ---
+      const STATS_KEY = 'multiverse_cricket_stats_standalone';
+      const HISTORY_KEY = 'multiverse_cricket_history_standalone';
+      const getStats = () => { try { return JSON.parse(localStorage.getItem(STATS_KEY)) || { matchesPlayed: 0, matchesWon: 0, highestScore: 0, totalRuns: 0 }; } catch { return { matchesPlayed: 0, matchesWon: 0, highestScore: 0, totalRuns: 0 }; }};
+      const getMatchHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }};
+      const saveMatchResult = (matchData) => {
+        const { innings1, innings2, battingFirst, bowlingFirst, winner, isTie } = matchData;
+        const matchRecord = { id: Date.now(), date: new Date().toLocaleDateString(), player1: battingFirst, player2: bowlingFirst, score1: innings1.score, score2: innings2.score, winner, isTie };
+        const history = [matchRecord, ...getMatchHistory()].slice(0, 10);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+        const stats = getStats();
+        stats.matchesPlayed += 1;
+        if (!isTie) stats.matchesWon += 1;
+        stats.highestScore = Math.max(stats.highestScore, innings1.score, innings2.score);
+        stats.totalRuns += (innings1.score + innings2.score);
+        localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+      };
+
+      // --- Audio ---
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      let audioCtx;
+      const initAudio = () => { if (!audioCtx) audioCtx = new AudioContext(); if (audioCtx.state === 'suspended') audioCtx.resume(); };
+      const playTone = (freq, type, duration) => {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + duration);
+      };
+      const playClick = () => playTone(600, 'sine', 0.1);
+      const playLock = () => { playTone(300, 'square', 0.15); setTimeout(() => playTone(400, 'square', 0.2), 50); };
+      const playReveal = () => { playTone(800, 'sine', 0.3); setTimeout(() => playTone(1200, 'sine', 0.5), 100); };
+      const playWicket = () => {
+        if (!audioCtx) return;
+        const bufferSize = audioCtx.sampleRate * 0.5; const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+        const data = buffer.getChannelData(0); for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = audioCtx.createBufferSource(); noise.buffer = buffer; const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        noise.connect(gain); gain.connect(audioCtx.destination); noise.start();
+      };
+      const playBoundary = () => { playTone(440, 'triangle', 0.2); setTimeout(() => playTone(554, 'triangle', 0.2), 100); setTimeout(() => playTone(659, 'triangle', 0.4), 200); };
+
+      // --- Game Logic ---
+      const POWER_CARDS = {
+        BATSMAN: [
+          { id: 'DOUBLE_REALITY', name: 'Double Reality', icon: '2️⃣' },
+          { id: 'SAFE_REALITY', name: 'Safe Reality', icon: '🛡️' },
+        ],
+        BOWLER: [
+          { id: 'DOUBLE_GUESS', name: 'Double Guess', icon: '🎯' },
+          { id: 'REALITY_COLLAPSE', name: 'Reality Collapse', icon: '💥' },
+        ]
+      };
+      const OPTION_POOL = [
+        '1 Run', '2 Runs', '3 Runs', '4 Runs', '6 Runs', 
+        'Wide +1', 'No Ball +1', 'No Ball +2', 'No Ball +4', 'No Ball +6'
+      ];
+      const parseRuns = (opt) => {
+        switch(opt) {
+          case '1 Run': return 1; case '2 Runs': return 2; case '3 Runs': return 3; case '4 Runs': return 4; case '6 Runs': return 6;
+          case 'Wide +1': return 1; case 'No Ball +1': return 2; case 'No Ball +2': return 3; case 'No Ball +4': return 5; case 'No Ball +6': return 7;
+          default: return 0;
+        }
+      };
+      const generateOptions = () => {
+        const shuffled = [...OPTION_POOL].sort(() => 0.5 - Math.random());
+        return { type: 'STANDARD', options: shuffled.slice(0, 4) };
+      };
+      const resolveBall = ({ batsmanChoice, bowlerChoices, batsmanPowerCard }) => {
+        let isWicket = bowlerChoices.includes(batsmanChoice);
+        let baseRuns = parseRuns(batsmanChoice);
+        let runs = baseRuns;
+        let msgs = [];
+        if (isWicket && batsmanPowerCard === 'SAFE_REALITY') { isWicket = false; runs = 0; msgs.push("Safe Reality: Wicket Prevented!"); }
+        if (!isWicket && batsmanPowerCard === 'DOUBLE_REALITY') { runs *= 2; msgs.push("Double Reality: Runs Doubled!"); }
+        return { isWicket, runs, outcome: isWicket ? 'W' : runs.toString(), display: isWicket ? 'WICKET!' : `${runs} RUNS`, symbol: isWicket ? 'W' : runs.toString(), specialMessages: msgs };
+      };
+      const formatOvers = (balls) => `${Math.floor(balls/6)}.${balls%6}`;
+
+      // --- Components ---
+      const Scoreboard = ({ innings, score, wickets, balls, target, ballHistory, maxOvers }) => (
+        <div className="w-full glassmorphism rounded-2xl p-5 border border-slate-800 text-center flex flex-col gap-3">
+          <div className="flex justify-between items-center text-xs text-slate-400 font-mono border-b border-slate-800 pb-2">
+            <span>Innings {innings}</span>
+            <span>Over {formatOvers(balls)} / {maxOvers}</span>
+            {target && <span>Target: {target}</span>}
+          </div>
+          <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">{score} <span className="text-xl text-slate-500">/ {wickets}</span></div>
+          <div className="flex gap-2 justify-center mt-2 h-8">
+            {ballHistory.slice(-6).map((b,i) => <span key={i} className={`w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold ${b.outcome === 'W' ? 'bg-red-900 text-red-200' : 'bg-slate-800 text-slate-300'}`}>{b.symbol}</span>)}
+          </div>
+        </div>
+      );
+
+      const PlayerSetup = ({ onBack, onStartGame }) => {
+        const [p1, setP1] = useState('Player 1'); const [p2, setP2] = useState('Player 2');
+        const [o, setO] = useState(1); const [w, setW] = useState(1);
+        return (
+          <div className="flex-1 flex flex-col items-center justify-center p-4">
+            <div className="glassmorphism p-8 rounded-3xl w-full max-w-lg text-center">
+              <h2 className="text-3xl font-extrabold uppercase mb-6 text-slate-100">Match Setup</h2>
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div><label className="text-xs uppercase text-slate-400">Overs</label><input type="number" min="1" value={o} onChange={e=>setO(parseInt(e.target.value)||1)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-center text-white" /></div>
+                <div><label className="text-xs uppercase text-slate-400">Wickets</label><input type="number" min="1" value={w} onChange={e=>setW(parseInt(e.target.value)||1)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-center text-white" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                <div className="bg-purple-900/20 p-3 rounded-xl border border-purple-500/20">
+                  <input value={p1} onChange={e=>setP1(e.target.value)} className="w-full bg-slate-900 rounded p-2 text-sm text-white" placeholder="Player 1" />
+                </div>
+                <div className="bg-cyan-900/20 p-3 rounded-xl border border-cyan-500/20">
+                  <input value={p2} onChange={e=>setP2(e.target.value)} className="w-full bg-slate-900 rounded p-2 text-sm text-white" placeholder="Player 2" />
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button type="button" onClick={()=>{playClick(); onBack();}} className="flex-1 border border-slate-800 text-slate-400 hover:text-slate-200 py-3 rounded-xl font-bold uppercase text-sm">Back</button>
+                <button type="button" onClick={()=>{playClick(); onStartGame({ player1Name:p1, player2Name:p2, overs:o, wickets:w })}} className="flex-[2] bg-gradient-to-r from-purple-600 to-cyan-600 py-3 rounded-xl font-bold uppercase text-white text-sm">Start Game</button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const TossScreen = ({ player1Name, player2Name, overs, wickets, onTossComplete, onBack }) => {
+        const [step, setStep] = useState('CALL'); // CALL → FLIPPING → RESULT → SUMMARY
+        const [predictionCall, setPredictionCall] = useState(null); // 'HEADS' | 'TAILS'
+        const [coinResult, setCoinResult] = useState(null);
+        const [tossWinner, setTossWinner] = useState(null);
+        const [choice, setChoice] = useState(null);
+        const [battingFirst, setBattingFirst] = useState(null);
+        const [bowlingFirst, setBowlingFirst] = useState(null);
+
+        const handlePredict = (value) => { playClick(); setPredictionCall(value); };
+
+        const handleFlipClick = () => {
+          if (!predictionCall) return;
+          playClick();
+          const result = Math.random() < 0.5 ? 'HEADS' : 'TAILS';
+          const winner = result === predictionCall ? player1Name : player2Name;
+          setCoinResult(result);
+          setTossWinner(winner);
+          setStep('FLIPPING');
+          setTimeout(() => { playReveal(); setStep('RESULT'); }, 2500);
+        };
+
+        const handleChoiceClick = (chosen) => {
+          playLock();
+          const tossLoser = tossWinner === player1Name ? player2Name : player1Name;
+          let batting, bowling;
+          if (chosen === 'bat') { batting = tossWinner; bowling = tossLoser; }
+          else { batting = tossLoser; bowling = tossWinner; }
+          setChoice(chosen); setBattingFirst(batting); setBowlingFirst(bowling); setStep('SUMMARY');
+        };
+
+        const handleStartMatch = () => {
+          playReveal();
+          onTossComplete({ tossWinner, coinResult, choice, battingFirst, bowlingFirst });
+        };
+
+        return (
+          <div className="flex-1 flex flex-col justify-center items-center py-10 px-4 animate-fade-in">
+            <div className="w-full max-w-lg glassmorphism rounded-3xl p-8 border border-slate-800/80 relative overflow-hidden text-center">
+              {step === 'CALL' && (
+                <button onClick={() => { playClick(); onBack(); }} className="absolute top-6 left-6 text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-purple-400 transition-colors flex items-center gap-1 z-20">← Back</button>
+              )}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 w-60 h-60 bg-amber-500/8 rounded-full blur-[60px] pointer-events-none"></div>
+              <span className="text-xs uppercase font-mono tracking-widest text-amber-400 font-bold mb-3 block">🪙 The Toss</span>
+              <h2 className="text-3xl font-extrabold uppercase tracking-wider text-slate-100 mb-2">🏏 Match Toss</h2>
+              <p className="text-slate-400 text-sm mb-6">Winner decides who bats first.</p>
+
+              <div className="coin w-36 h-36 mx-auto my-10 relative">
+                <div className={`coin-inner w-full h-full relative ${step === 'FLIPPING' ? (coinResult === 'HEADS' ? 'animate-coin-heads' : 'animate-coin-tails') : ''}`} style={step === 'RESULT' || step === 'SUMMARY' ? { transform: coinResult === 'HEADS' ? 'rotateY(0deg)' : 'rotateY(180deg)' } : {}}>
+                  <div className="coin-face w-full h-full rounded-full bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-600 border-4 border-amber-300 shadow-[0_0_30px_rgba(245,158,11,0.6)] flex flex-col items-center justify-center">
+                    <span className="text-5xl drop-shadow-md">👑</span>
+                    <span className="text-xs font-black uppercase tracking-widest text-amber-100 font-mono mt-1">HEADS</span>
+                  </div>
+                  <div className="coin-face coin-back w-full h-full rounded-full bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-600 border-4 border-amber-300 shadow-[0_0_30px_rgba(245,158,11,0.6)] flex flex-col items-center justify-center">
+                    <span className="text-5xl drop-shadow-md">🌟</span>
+                    <span className="text-xs font-black uppercase tracking-widest text-amber-100 font-mono mt-1">TAILS</span>
+                  </div>
+                </div>
+              </div>
+
+              {step === 'CALL' && (
+                <div className="mt-8 animate-slide-up">
+                  <p className="text-slate-300 mb-6 text-sm"><span className="text-purple-400 font-bold">{player1Name}</span>, predict heads or tails:</p>
+                  <div className="flex justify-center gap-4 mb-8">
+                    <button onClick={() => handlePredict('HEADS')} className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${predictionCall === 'HEADS' ? 'border-amber-400 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] scale-110' : 'border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:scale-105'}`}>
+                      <span className="text-2xl">👑</span>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${predictionCall === 'HEADS' ? 'text-amber-300' : 'text-slate-400'}`}>Heads</span>
+                    </button>
+                    <button onClick={() => handlePredict('TAILS')} className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${predictionCall === 'TAILS' ? 'border-amber-400 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] scale-110' : 'border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:scale-105'}`}>
+                      <span className="text-2xl">🌟</span>
+                      <span className={`text-xs font-bold uppercase tracking-wider ${predictionCall === 'TAILS' ? 'text-amber-300' : 'text-slate-400'}`}>Tails</span>
+                    </button>
+                  </div>
+                  <button onClick={handleFlipClick} disabled={!predictionCall} className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all duration-300 ${predictionCall ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)] hover:scale-105 active:scale-95' : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'}`}>🪙 Flip Coin</button>
+                </div>
+              )}
+              {step === 'FLIPPING' && <div className="mt-8 animate-fade-in"><p className="text-sm text-amber-400 font-mono tracking-widest uppercase animate-pulse">Flipping Coin...</p></div>}
+              {step === 'RESULT' && (
+                <div className="mt-6 animate-scale-in">
+                  <div className="mb-4">
+                    <p className="text-xs font-mono uppercase tracking-widest text-slate-500 mb-1">Coin Result</p>
+                    <span className="text-3xl font-black text-amber-400 font-mono drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]">{coinResult}</span>
+                  </div>
+                  <div className="bg-slate-950/50 border border-purple-500/20 rounded-2xl p-5 mb-8 max-w-sm mx-auto">
+                    <h3 className="text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400 uppercase">🎉 {tossWinner} won the toss!</h3>
+                  </div>
+                  <p className="text-slate-400 mb-6 text-sm"><span className="text-amber-300 font-bold">{tossWinner}</span>, choose your starting role:</p>
+                  <div className="flex gap-4 max-w-sm mx-auto">
+                    <button onClick={() => handleChoiceClick('bat')} className="flex-1 px-6 py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold uppercase tracking-wider text-sm hover:scale-[1.03] transition-all">🏏 Bat First</button>
+                    <button onClick={() => handleChoiceClick('bowl')} className="flex-1 px-6 py-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold uppercase tracking-wider text-sm hover:scale-[1.03] transition-all">🎯 Bowl First</button>
+                  </div>
+                </div>
+              )}
+              {step === 'SUMMARY' && (
+                <div className="mt-6 animate-scale-in">
+                  <div className="max-w-sm mx-auto bg-slate-950/60 border border-slate-800 rounded-2xl p-6 text-left mb-8">
+                    <h4 className="text-xs uppercase font-mono tracking-widest text-slate-500 mb-4 text-center border-b border-slate-900 pb-2">Match Ready</h4>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center text-sm"><span className="text-slate-400">Bat First:</span><span className="font-bold text-purple-300">{battingFirst}</span></div>
+                      <div className="flex justify-between items-center text-sm"><span className="text-slate-400">Bowl First:</span><span className="font-bold text-cyan-300">{bowlingFirst}</span></div>
+                      <div className="flex justify-between items-center text-sm border-t border-slate-900 pt-3"><span className="text-slate-400">Overs:</span><span className="font-bold text-slate-200">{overs} {overs === 1 ? 'Over' : 'Overs'}</span></div>
+                      <div className="flex justify-between items-center text-sm"><span className="text-slate-400">Wickets:</span><span className="font-bold text-slate-200">{wickets} {wickets === 1 ? 'Wicket' : 'Wickets'}</span></div>
+                    </div>
+                  </div>
+                  <button onClick={handleStartMatch} className="w-full max-w-sm mx-auto px-8 py-4 rounded-2xl font-bold uppercase tracking-wider text-sm bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:scale-[1.02] transition-all block text-center">▶ Start Match</button>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const GameScreen = ({ config, battingFirst, bowlingFirst, onGameEnd, onBackToSetup, onExitToHome }) => {
+        const [innings, setInnings] = useState(1);
+        const [scores, setScores] = useState({ 1: { score:0, wickets:0, balls:0, ballHistory:[] }, 2: { score:0, wickets:0, balls:0, ballHistory:[] } });
+        const [showExitModal, setShowExitModal] = useState(false);
+        
+        const batsmanName = innings === 1 ? battingFirst : bowlingFirst;
+        const bowlerName = innings === 1 ? bowlingFirst : battingFirst;
+
+        const [bCards, setBCards] = useState({ DOUBLE_REALITY:1, SAFE_REALITY:1 });
+        const [bwCards, setBwCards] = useState({ DOUBLE_GUESS:1, REALITY_COLLAPSE:1 });
+        
+        const [step, setStep] = useState('BATSMAN_SELECT');
+        const [ballData, setBallData] = useState(null);
+        const [batChoice, setBatChoice] = useState(null);
+        const [bowlChoices, setBowlChoices] = useState([]);
+        const [batActive, setBatActive] = useState(null);
+        const [bwActive, setBwActive] = useState(null);
+        const [result, setResult] = useState(null);
+        const [opts, setOpts] = useState([]);
+
+        useEffect(() => {
+          setBCards({ DOUBLE_REALITY:1, SAFE_REALITY:1 });
+          setBwCards({ DOUBLE_GUESS: 1, REALITY_COLLAPSE:1 });
+        }, [innings]);
+
+        useEffect(() => {
+          if (step === 'BATSMAN_SELECT') {
+            const data = generateOptions(); setBallData(data); setOpts(data.options);
+          }
+        }, [step]);
+
+        const confirmBat = () => { if (batChoice !== null) { playLock(); if (batActive) setBCards(p => ({...p, [batActive]: p[batActive]-1})); setStep('PASS_DEVICE'); } };
+        
+        const toggleBwCard = (id) => {
+          if (bwCards[id] <= 0) return; playClick();
+          if (id === 'REALITY_COLLAPSE' && bwActive !== 'REALITY_COLLAPSE') {
+            const wrong = ballData.options.filter(o => o !== batChoice);
+            const keepWrong = wrong.sort(()=>0.5-Math.random()).slice(0, 2);
+            setOpts([batChoice, ...keepWrong].sort()); setBowlChoices([]);
+          } else if (bwActive === 'REALITY_COLLAPSE' && id !== 'REALITY_COLLAPSE') {
+            setOpts(ballData.options); setBowlChoices([]);
+          }
+          if (id === 'DOUBLE_GUESS' && bwActive !== 'DOUBLE_GUESS') setBowlChoices([]);
+          setBwActive(p => p === id ? null : id);
+        };
+
+        const confirmBowl = () => {
+          if (bowlChoices.length === 0) return; playLock();
+          if (bwActive) setBwCards(p => ({...p, [bwActive]: p[bwActive]-1}));
+          const res = resolveBall({ batsmanChoice: batChoice, bowlerChoices: bowlChoices, batsmanPowerCard: batActive });
+          setResult(res); setTimeout(() => res.isWicket ? playWicket() : playReveal(), 200);
+          setScores(p => { const c = {...p[innings]}; c.score += res.runs; if (res.isWicket) c.wickets++; c.balls++; c.ballHistory = [...c.ballHistory, {outcome: res.outcome, symbol: res.symbol}]; return {...p, [innings]: c}; });
+          setStep('REVEAL');
+        };
+
+        const nextBall = () => {
+          playClick(); const c = scores[innings];
+          const isOver = c.balls >= config.overs * 6; const isAllOut = c.wickets >= config.wickets;
+          const targetChased = innings === 2 && c.score >= scores[1].score + 1;
+          if (innings === 1) { if (isOver || isAllOut) setStep('INNINGS_BREAK'); else reset(); } 
+          else { if (targetChased || isOver || isAllOut) onGameEnd({ innings1: scores[1], innings2: scores[2], battingFirst, bowlingFirst }); else reset(); }
+        };
+
+        const reset = () => { setBatChoice(null); setBowlChoices([]); setBatActive(null); setBwActive(null); setResult(null); setStep('BATSMAN_SELECT'); };
+
+        const renderOptionCard = (opt, isSelected, onClick) => {
+          const totalRuns = parseRuns(opt);
+          return (
+            <button onClick={onClick} className={`flex-1 w-full max-w-[140px] min-h-[140px] rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center p-3 gap-2 ${isSelected ? 'bg-gradient-to-br from-purple-500/30 to-indigo-500/30 border-purple-400 ring-2 ring-purple-500/50 scale-105' : 'glassmorphism-card border-slate-700 hover:scale-105'}`}>
+              <span className={`text-xl md:text-2xl font-black text-center leading-tight ${isSelected ? 'text-purple-300' : 'text-slate-200'}`}>{opt}</span>
+              <span className={`text-[10px] uppercase font-bold tracking-widest px-2 py-1 rounded bg-black/40 ${isSelected ? 'text-purple-400' : 'text-slate-400'}`}>Total: {totalRuns} {totalRuns===1?'Run':'Runs'}</span>
+            </button>
+          );
+        };
+
+        return (
+          <div className="flex-1 w-full max-w-3xl mx-auto flex flex-col gap-4 p-4 relative">
+            <div className="self-start">
+              <button onClick={() => { playClick(); setShowExitModal(true); }} className="flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-red-400 transition-colors py-1.5 px-3 rounded-lg border border-slate-800/80 bg-slate-950/40">
+                ← Exit Match
+              </button>
+            </div>
+            
+            {step !== 'INNINGS_BREAK' && <Scoreboard innings={innings} score={scores[innings].score} wickets={scores[innings].wickets} balls={scores[innings].balls} target={innings === 2 ? scores[1].score+1 : null} maxOvers={config.overs} ballHistory={scores[innings].ballHistory}/>}
+            
+            {step === 'INNINGS_BREAK' && (
+              <div className="text-center py-10"><h3 className="text-3xl font-black mb-4">Target: {scores[1].score + 1}</h3><button onClick={() => {playClick(); setInnings(2); reset();}} className="px-6 py-3 bg-purple-600 rounded-xl text-white font-bold">Start Innings 2</button></div>
+            )}
+
+            {step === 'BATSMAN_SELECT' && (
+              <div className="text-center animate-slide-up">
+                <h3 className="text-xl font-bold uppercase text-purple-300 mt-2">Choose your scoring reality</h3>
+                <div className="grid grid-cols-2 md:flex md:flex-row justify-center gap-4 my-4">
+                  {opts.map((o,i) => <React.Fragment key={`bat-${i}`}>{renderOptionCard(o, batChoice===o, ()=>{playClick(); setBatChoice(o);})}</React.Fragment>)}
+                </div>
+                <div className="flex justify-center gap-2 mb-4">
+                  {POWER_CARDS.BATSMAN.map(c => <button key={c.id} onClick={()=>{playClick(); setBatActive(p=>p===c.id?null:c.id)}} disabled={bCards[c.id]<=0 && batActive!==c.id} className={`p-2 rounded text-xs border ${batActive===c.id?'bg-purple-600':'bg-slate-900'} ${bCards[c.id]<=0?'opacity-50':''}`}>{c.icon} {c.name}</button>)}
+                </div>
+                <button onClick={confirmBat} disabled={batChoice===null} className="px-6 py-3 bg-white text-black font-bold rounded-xl disabled:opacity-50">Lock Choice</button>
+              </div>
+            )}
+
+            {step === 'PASS_DEVICE' && (
+              <div className="flex-1 flex flex-col justify-center items-center py-10 animate-fade-in text-center">
+                <div className="glassmorphism rounded-3xl p-8 max-w-sm">
+                  <h3 className="text-2xl font-extrabold uppercase mb-4">Pass the device to the bowler</h3>
+                  <button onClick={() => {playClick(); setStep('BOWLER_SELECT');}} className="w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-indigo-600 text-white font-bold uppercase">I am {bowlerName}</button>
+                </div>
+              </div>
+            )}
+
+            {step === 'BOWLER_SELECT' && (
+              <div className="text-center animate-slide-up">
+                <h3 className="text-xl font-bold uppercase text-cyan-300 mt-2">Predict the batsman's reality</h3>
+                <div className="grid grid-cols-2 md:flex md:flex-row justify-center gap-4 my-4">
+                  {opts.map((o,i) => <React.Fragment key={`bowl-${i}`}>{renderOptionCard(o, bowlChoices.includes(o), ()=>{playClick(); bowlChoices.includes(o) ? setBowlChoices(p=>p.filter(x=>x!==o)) : (bwActive==='DOUBLE_GUESS' ? bowlChoices.length<2 && setBowlChoices(p=>[...p, o]) : setBowlChoices([o]))})}</React.Fragment>)}
+                </div>
+                <div className="flex justify-center gap-2 mb-4">
+                  {POWER_CARDS.BOWLER.map(c => <button key={c.id} onClick={()=>toggleBwCard(c.id)} disabled={bwCards[c.id]<=0 && bwActive!==c.id} className={`p-2 rounded text-xs border ${bwActive===c.id?'bg-cyan-600':'bg-slate-900'} ${bwCards[c.id]<=0?'opacity-50':''}`}>{c.icon} {c.name}</button>)}
+                </div>
+                <button onClick={confirmBowl} disabled={bowlChoices.length===0 || (bwActive==='DOUBLE_GUESS' && bowlChoices.length!==2)} className="px-6 py-3 bg-white text-black font-bold rounded-xl disabled:opacity-50">Reveal</button>
+              </div>
+            )}
+
+            {step === 'REVEAL' && result && (
+              <div className="text-center animate-fade-in mt-4">
+                <div className="flex justify-around mb-4">
+                  <div className="p-4 bg-purple-900/30 rounded-xl"><div className="text-xs text-purple-300 mb-2">Batsman Chose</div><div className="text-2xl font-black">{batChoice}</div></div>
+                  <div className="p-4 bg-cyan-900/30 rounded-xl"><div className="text-xs text-cyan-300 mb-2">Bowler Predicted</div><div className="text-2xl font-black">{bowlChoices.join(' & ')}</div></div>
+                </div>
+                {result.specialMessages.map((m,i)=><div key={i} className="text-amber-400 text-sm font-bold animate-pulse mb-2">{m}</div>)}
+                <div className="text-5xl font-black my-4 py-4 bg-slate-900 rounded-xl uppercase tracking-widest text-white">{result.isWicket ? 'OUT' : `${result.runs} RUNS`}</div>
+                <button onClick={nextBall} className="px-6 py-3 bg-white text-black font-bold rounded-xl">Next Ball</button>
+              </div>
+            )}
+
+            {showExitModal && (
+              <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
+                <div className="w-full max-w-md glassmorphism rounded-3xl p-8 border border-slate-800/80 text-center animate-scale-in relative">
+                  <h3 className="text-2xl font-extrabold text-slate-100 uppercase mb-3 tracking-wider">Leave Match?</h3>
+                  <p className="text-sm text-slate-400 mb-8 leading-relaxed">Your current match progress will be lost.</p>
+                  <div className="flex flex-col gap-3 max-w-xs mx-auto">
+                    <button onClick={() => { playClick(); setShowExitModal(false); }} className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold uppercase text-xs rounded-xl">Continue Match</button>
+                    <button onClick={() => { playClick(); onBackToSetup(); }} className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold uppercase text-xs rounded-xl">Back to Setup</button>
+                    <button onClick={() => { playClick(); onExitToHome(); }} className="w-full py-3 border border-slate-700 bg-slate-900 text-slate-300 font-bold uppercase text-xs rounded-xl">Exit to Home</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const ResultScreen = ({ matchData, onRestart, onViewStats }) => {
+        useEffect(() => { saveMatchResult({...matchData, winner: matchData.innings1.score > matchData.innings2.score ? matchData.battingFirst : matchData.innings2.score > matchData.innings1.score ? matchData.bowlingFirst : 'TIE', isTie: matchData.innings1.score === matchData.innings2.score}); confetti({particleCount: 150, spread: 80}); }, []);
+        return (
+          <div className="text-center p-8 animate-scale-in">
+            <h2 className="text-4xl font-black text-amber-400 mb-8">Match Over</h2>
+            <div className="flex justify-center gap-4 mb-8">
+              <button onClick={onRestart} className="px-6 py-3 bg-purple-600 rounded-xl font-bold">Play Again</button>
+              <button onClick={onViewStats} className="px-6 py-3 bg-slate-800 rounded-xl font-bold">View Stats</button>
+            </div>
+          </div>
+        );
+      };
+
+      const StatsScreen = ({ onBack }) => {
+        const stats = getStats();
+        return (
+          <div className="p-8 text-center animate-fade-in">
+            <h2 className="text-3xl font-black mb-8">Global Stats</h2>
+            <div className="grid grid-cols-2 gap-4 max-w-md mx-auto mb-8">
+              <div className="p-4 glassmorphism rounded-xl"><div className="text-xs text-slate-400">Played</div><div className="text-2xl font-bold">{stats.matchesPlayed}</div></div>
+              <div className="p-4 glassmorphism rounded-xl"><div className="text-xs text-slate-400">Wins</div><div className="text-2xl font-bold">{stats.matchesWon}</div></div>
+            </div>
+            <button onClick={onBack} className="px-6 py-3 bg-white text-black font-bold rounded-xl">Back</button>
+          </div>
+        );
+      };
+
+      const App = () => {
+        const [screen, setScreen] = useState('HOME');
+        const [config, setConfig] = useState(null);
+        const [tossData, setTossData] = useState(null);
+        const [matchData, setMatchData] = useState(null);
+
+        useEffect(() => { const init = () => { initAudio(); window.removeEventListener('click', init); }; window.addEventListener('click', init); }, []);
+
+        const handleRestart = () => {
+          playClick();
+          setTossData(null);
+          setMatchData(null);
+          setScreen('HOME');
+        };
+
+        const handleTossComplete = (data) => {
+          setTossData(data);
+          setScreen('PLAY');
+        };
+
+        return (
+          <div className="cosmic-bg min-h-screen flex flex-col text-white font-sans">
+            <header className="p-4 flex justify-between border-b border-slate-800 z-10">
+              <button onClick={handleRestart} className="font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">🌌 MULTIVERSE</button>
+              <button onClick={()=>setScreen('STATS')} className="text-xs font-bold text-slate-400">STATS</button>
+            </header>
+            <main className="flex-1 flex flex-col z-10 relative">
+              {screen === 'HOME' && <div className="flex-1 flex flex-col items-center justify-center"><h1 className="text-6xl font-black shimmer-text text-center mb-8">Multiverse<br/>Cricket</h1><button onClick={()=>setScreen('SETUP')} className="px-8 py-4 bg-purple-600 rounded-full font-bold text-xl">Start Match</button></div>}
+              
+              {screen === 'SETUP' && (
+                <PlayerSetup 
+                  onBack={() => setScreen('HOME')} 
+                  onStartGame={c => {setConfig(c); setScreen('TOSS');}} 
+                />
+              )}
+              
+              {screen === 'TOSS' && config && (
+                <TossScreen 
+                  player1Name={config.player1Name} 
+                  player2Name={config.player2Name} 
+                  overs={config.overs} 
+                  wickets={config.wickets} 
+                  onTossComplete={handleTossComplete}
+                  onBack={() => setScreen('SETUP')}
+                />
+              )}
+              
+              {screen === 'PLAY' && config && tossData && (
+                <GameScreen 
+                  config={config} 
+                  battingFirst={tossData.battingFirst}
+                  bowlingFirst={tossData.bowlingFirst}
+                  onGameEnd={d => {setMatchData(d); setScreen('RESULT');}} 
+                  onBackToSetup={() => setScreen('SETUP')}
+                  onExitToHome={handleRestart}
+                />
+              )}
+              
+              {screen === 'RESULT' && matchData && (
+                <ResultScreen 
+                  matchData={{...matchData, battingFirst: tossData.battingFirst, bowlingFirst: tossData.bowlingFirst}} 
+                  onRestart={handleRestart} 
+                  onViewStats={()=>setScreen('STATS')} 
+                />
+              )}
+              
+              {screen === 'STATS' && <StatsScreen onBack={() => setScreen('HOME')} />}
+            </main>
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
