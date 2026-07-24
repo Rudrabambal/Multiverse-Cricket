@@ -12,10 +12,6 @@ class RealtimeSocket {
     this.playerId = null;
   }
 
-  connect() {
-    // Lazy initialized when joining or creating a room
-  }
-
   initStream(roomCode, playerId) {
     this.roomCode = roomCode;
     this.playerId = playerId;
@@ -35,8 +31,13 @@ class RealtimeSocket {
       console.warn('Realtime stream reconnecting...', err);
     };
 
-    // Forward SSE custom events to registered listeners
-    const events = ['roomUpdated', 'gameStart', 'tossResult', 'tossCompleted', 'matchStarted', 'opponentMove', 'stateSynced', 'opponentLeft', 'errorMsg'];
+    // All server-broadcast events
+    const events = [
+      'roomUpdated', 'gameStart', 'tossResult', 'tossCompleted',
+      'matchStarted', 'batsmanMoved', 'ballResult',
+      'nextBall', 'inningsChange', 'gameOver', 'gameState',
+      'opponentLeft', 'errorMsg'
+    ];
     events.forEach(evt => {
       this.eventSource.addEventListener(evt, (e) => {
         try {
@@ -50,9 +51,7 @@ class RealtimeSocket {
   }
 
   on(event, callback) {
-    if (!this.listeners[event]) {
-      this.listeners[event] = [];
-    }
+    if (!this.listeners[event]) this.listeners[event] = [];
     this.listeners[event].push(callback);
   }
 
@@ -101,15 +100,19 @@ class RealtimeSocket {
         return;
       }
 
-      // Other actions: tossCall, tossDecision, playMove, syncState
+      // All other actions go to /api/<event>
       await fetch(`${this.baseUrl}/api/${event}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, playerId: this.playerId, roomCode: this.roomCode || payload.roomCode })
+        body: JSON.stringify({
+          ...payload,
+          playerId: this.playerId,
+          roomCode: this.roomCode || payload.roomCode
+        })
       });
     } catch (err) {
       console.error(`Error emitting ${event}:`, err);
-      this.trigger('errorMsg', 'Network connection issue. Please make sure the backend server is running on port 3001.');
+      this.trigger('errorMsg', 'Network error. Make sure the backend server is running on port 3001.');
     }
   }
 

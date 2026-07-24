@@ -69,6 +69,10 @@ const App = () => {
 
   const handleTossComplete = (data) => {
     setTossData(data);
+    // If currentOptions came from the server (multiplayer), store in roomData
+    if (data.currentOptions && roomData) {
+      setRoomData(prev => prev ? { ...prev, currentOptions: data.currentOptions } : prev);
+    }
     setScreen('PLAY');
   };
 

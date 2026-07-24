@@ -41,9 +41,13 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
       setStep('SUMMARY');
     };
 
-    const handleMatchStarted = (finalTossData) => {
+    const handleMatchStarted = (data) => {
       playRevealSound();
-      onTossComplete(finalTossData);
+      // data includes: tossData, battingFirstId, bowlingFirstId, currentOptions, scores, innings
+      onTossComplete({
+        ...data.tossData,
+        currentOptions: data.currentOptions,
+      });
     };
 
     socket.on('tossResult', handleTossResult);

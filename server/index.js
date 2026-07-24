@@ -1,53 +1,150 @@
 import http from 'http';
 import { URL } from 'url';
 
+// ─── In-Memory State ───
 const rooms = {};
-const sseClients = {}; // roomCode -> [ { playerId, res } ]
+const sseClients = {};
 
-function generateRoomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-  for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+// ─── Game Logic (server-authoritative) ───
+const OPTION_POOL = ['1 Run','2 Runs','3 Runs','4 Runs','6 Runs','Wide +1','No Ball +1','No Ball +2','No Ball +4','No Ball +6'];
+
+function parseRuns(opt) {
+  switch (opt) {
+    case '1 Run': return 1;
+    case '2 Runs': return 2;
+    case '3 Runs': return 3;
+    case '4 Runs': return 4;
+    case '6 Runs': return 6;
+    case 'Wide +1': return 1;
+    case 'No Ball +1': return 2;
+    case 'No Ball +2': return 3;
+    case 'No Ball +4': return 5;
+    case 'No Ball +6': return 7;
+    default: return 0;
   }
+}
+
+function generateOptions() {
+  const shuffled = [...OPTION_POOL].sort(() => 0.5 - Math.random());
+  return shuffled.slice(0, 4);
+}
+
+function resolveBall({ batsmanChoice, bowlerChoices, batsmanPowerCard }) {
+  let isWicket = bowlerChoices.includes(batsmanChoice);
+  let runs = parseRuns(batsmanChoice);
+  const specialMessages = [];
+
+  if (isWicket && batsmanPowerCard === 'SAFE_REALITY') {
+    isWicket = false;
+    runs = 0;
+    specialMessages.push('Safe Reality Activated: Wicket Prevented!');
+  }
+  if (!isWicket && batsmanPowerCard === 'DOUBLE_REALITY') {
+    runs *= 2;
+    specialMessages.push('Double Reality: Runs Doubled!');
+  }
+
+  const outcome = isWicket ? 'W' : runs.toString();
+  return { isWicket, runs, outcome, display: isWicket ? 'WICKET!' : `${runs} RUNS`, symbol: outcome, specialMessages };
+}
+
+// ─── Room Code Generator ───
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
 
+// ─── SSE Broadcast ───
 function broadcast(roomCode, event, data) {
   const clients = sseClients[roomCode] || [];
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   clients.forEach(c => {
-    try {
-      c.res.write(payload);
-    } catch (e) {
-      // Ignore write errors for disconnected clients
-    }
+    try { c.res.write(payload); } catch (e) { /* ignore disconnected */ }
   });
 }
 
+function sendToPlayer(roomCode, playerId, event, data) {
+  const clients = (sseClients[roomCode] || []).filter(c => c.playerId === playerId);
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  clients.forEach(c => {
+    try { c.res.write(payload); } catch (e) { /* ignore */ }
+  });
+}
+
+// ─── Resolve Ball When Both Moves Are In ───
+function tryResolveBall(room) {
+  const gs = room.gameState;
+  if (!gs || gs.phase !== 'WAITING_BOTH') return;
+  if (gs.batsmanMove === undefined || gs.bowlerMove === undefined) return;
+
+  const result = resolveBall({
+    batsmanChoice: gs.batsmanMove.choice,
+    bowlerChoices: gs.bowlerMove.choices,
+    batsmanPowerCard: gs.batsmanMove.powerCard || null,
+  });
+
+  const innings = gs.innings;
+  const score = gs.scores[innings];
+  score.score += result.runs;
+  if (result.isWicket) score.wickets += 1;
+  score.balls += 1;
+  score.ballHistory.push({ outcome: result.outcome, symbol: result.symbol });
+
+  const maxWickets = room.config.wickets;
+  const maxBalls = room.config.overs * 6;
+  const target = innings === 2 ? gs.scores[1].score + 1 : null;
+  const isAllOut = score.wickets >= maxWickets;
+  const isOverComplete = score.balls >= maxBalls;
+  const targetChased = innings === 2 && score.score >= target;
+
+  let nextPhase = 'REVEAL';
+  let inningsOver = false;
+  let matchOver = false;
+
+  if (innings === 1 && (isAllOut || isOverComplete)) {
+    inningsOver = true;
+  } else if (innings === 2 && (targetChased || isAllOut || isOverComplete)) {
+    matchOver = true;
+  }
+
+  gs.lastResult = result;
+  gs.phase = 'REVEAL';
+  gs.batsmanMove = undefined;
+  gs.bowlerMove = undefined;
+  gs.bowlerPowerCardUsed = gs.bowlerMove?.powerCard;
+
+  broadcast(room.code, 'ballResult', {
+    result,
+    scores: gs.scores,
+    innings,
+    inningsOver,
+    matchOver,
+    battingFirstId: gs.battingFirstId,
+    bowlingFirstId: gs.bowlingFirstId,
+  });
+}
+
+// ─── HTTP Server ───
 const server = http.createServer((req, res) => {
-  // Global CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   const pathname = reqUrl.pathname;
 
-  // 1. Health Check
+  // Health Check
   if (pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', activeRooms: Object.keys(rooms).length }));
     return;
   }
 
-  // 2. Real-time Event Stream (Server-Sent Events)
+  // SSE Stream
   if (pathname === '/api/stream') {
     const roomCode = reqUrl.searchParams.get('roomCode')?.toUpperCase();
     const playerId = reqUrl.searchParams.get('playerId');
@@ -68,24 +165,38 @@ const server = http.createServer((req, res) => {
 
     if (!sseClients[roomCode]) sseClients[roomCode] = [];
     sseClients[roomCode].push({ playerId, res });
+    console.log(`📡 Player ${playerId} connected to room: ${roomCode}`);
 
-    console.log(`📡 Player ${playerId} connected to room stream: ${roomCode}`);
+    // Send current game state if reconnecting mid-game
+    const room = rooms[roomCode];
+    if (room && room.gameState) {
+      const gs = room.gameState;
+      res.write(`event: gameState\ndata: ${JSON.stringify({
+        scores: gs.scores,
+        innings: gs.innings,
+        phase: gs.phase,
+        battingFirstId: gs.battingFirstId,
+        bowlingFirstId: gs.bowlingFirstId,
+        currentOptions: gs.currentOptions,
+      })}\n\n`);
+    }
 
     req.on('close', () => {
-      console.log(`🔌 Player ${playerId} disconnected from room stream: ${roomCode}`);
+      console.log(`🔌 Player ${playerId} disconnected from room: ${roomCode}`);
       if (sseClients[roomCode]) {
         sseClients[roomCode] = sseClients[roomCode].filter(c => c.playerId !== playerId);
         const room = rooms[roomCode];
         if (room) {
-          room.players = room.players.filter(p => p.id !== playerId);
-          if (room.players.length === 0) {
-            delete rooms[roomCode];
-            delete sseClients[roomCode];
+          if (sseClients[roomCode].length === 0) {
+            // cleanup after a delay to allow reconnect
+            setTimeout(() => {
+              if ((sseClients[roomCode] || []).length === 0) {
+                delete rooms[roomCode];
+                delete sseClients[roomCode];
+              }
+            }, 30000);
           } else {
-            broadcast(roomCode, 'opponentLeft', {
-              message: 'Your opponent disconnected from the room.',
-              remainingPlayers: room.players
-            });
+            broadcast(roomCode, 'opponentLeft', { message: 'Your opponent disconnected.' });
           }
         }
       }
@@ -93,36 +204,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Parse Body for REST Actions
+  // Parse body for POST
   let body = '';
   req.on('data', chunk => { body += chunk; });
   req.on('end', () => {
     let data = {};
-    try { if (body) data = JSON.parse(body); } catch (e) {}
+    try { data = JSON.parse(body); } catch (e) { /* ignore */ }
 
     // Create Room
     if (pathname === '/api/createRoom' && req.method === 'POST') {
-      let code = generateRoomCode();
-      while (rooms[code]) code = generateRoomCode();
-
+      let code;
+      do { code = generateRoomCode(); } while (rooms[code]);
       const hostId = 'p_' + Math.random().toString(36).substring(2, 9);
       rooms[code] = {
         code,
-        hostId,
         players: [{ id: hostId, name: data.playerName || 'Player 1', isHost: true }],
-        config: data.config || { overs: 1, wickets: 1 },
-        status: 'WAITING'
+        config: { overs: data.overs || 1, wickets: data.wickets || 1 },
+        toss: null,
+        gameState: null,
       };
-
-      console.log(`🏠 Room Created: ${code} by ${data.playerName}`);
-
+      console.log(`🏠 Room created: ${code} by ${data.playerName}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        roomCode: code,
-        playerId: hostId,
-        players: rooms[code].players,
-        config: rooms[code].config
-      }));
+      res.end(JSON.stringify({ roomCode: code, playerId: hostId }));
       return;
     }
 
@@ -130,33 +233,21 @@ const server = http.createServer((req, res) => {
     if (pathname === '/api/joinRoom' && req.method === 'POST') {
       const code = data.roomCode?.toUpperCase();
       const room = rooms[code];
-
       if (!room) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Room not found. Please check code.' }));
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Room not found' }));
         return;
       }
-
       if (room.players.length >= 2) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Room is full (max 2 players allowed).' }));
+        res.end(JSON.stringify({ error: 'Room is full' }));
         return;
       }
-
       const joinerId = 'p_' + Math.random().toString(36).substring(2, 9);
       room.players.push({ id: joinerId, name: data.playerName || 'Player 2', isHost: false });
-
       console.log(`👤 ${data.playerName} joined room: ${code}`);
-
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        roomCode: code,
-        playerId: joinerId,
-        players: room.players,
-        config: room.config
-      }));
-
-      // Broadcast update & start game
+      res.end(JSON.stringify({ roomCode: code, playerId: joinerId, players: room.players, config: room.config }));
       broadcast(code, 'roomUpdated', { players: room.players, status: 'READY' });
       broadcast(code, 'gameStart', { roomCode: code, players: room.players, config: room.config });
       return;
@@ -188,7 +279,8 @@ const server = http.createServer((req, res) => {
         const loserId = p1.id === winnerId ? p2.id : p1.id;
         const battingFirstId = data.decision === 'BAT' ? winnerId : loserId;
         const bowlingFirstId = data.decision === 'BAT' ? loserId : winnerId;
-
+        room.toss.battingFirstId = battingFirstId;
+        room.toss.bowlingFirstId = bowlingFirstId;
         broadcast(room.code, 'tossCompleted', { toss: room.toss, battingFirstId, bowlingFirstId });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -199,30 +291,117 @@ const server = http.createServer((req, res) => {
     // Start Match
     if (pathname === '/api/startMatch' && req.method === 'POST') {
       const room = rooms[data.roomCode?.toUpperCase()];
-      if (room) {
-        broadcast(room.code, 'matchStarted', data.tossData);
+      if (room && room.toss) {
+        const options = generateOptions();
+        room.gameState = {
+          innings: 1,
+          phase: 'BATSMAN_SELECT', // BATSMAN_SELECT | BOWLER_SELECT | WAITING_BOTH | REVEAL | INNINGS_BREAK | GAME_OVER
+          battingFirstId: room.toss.battingFirstId,
+          bowlingFirstId: room.toss.bowlingFirstId,
+          currentOptions: options,
+          batsmanMove: undefined,
+          bowlerMove: undefined,
+          lastResult: null,
+          scores: {
+            1: { score: 0, wickets: 0, balls: 0, ballHistory: [] },
+            2: { score: 0, wickets: 0, balls: 0, ballHistory: [] },
+          }
+        };
+        broadcast(room.code, 'matchStarted', {
+          tossData: data.tossData,
+          battingFirstId: room.toss.battingFirstId,
+          bowlingFirstId: room.toss.bowlingFirstId,
+          currentOptions: options,
+          scores: room.gameState.scores,
+          innings: 1,
+        });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
       return;
     }
 
-    // Play Move
-    if (pathname === '/api/playMove' && req.method === 'POST') {
+    // Submit Batsman Move
+    if (pathname === '/api/batsmanMove' && req.method === 'POST') {
       const room = rooms[data.roomCode?.toUpperCase()];
-      if (room) {
-        broadcast(room.code, 'opponentMove', { move: data.move, playerId: data.playerId });
+      if (room && room.gameState) {
+        const gs = room.gameState;
+        gs.batsmanMove = { choice: data.choice, powerCard: data.powerCard || null };
+        gs.phase = 'BOWLER_SELECT';
+
+        // Notify bowler to select (send the options)
+        broadcast(room.code, 'batsmanMoved', {
+          phase: 'BOWLER_SELECT',
+          currentOptions: gs.currentOptions,
+        });
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
       return;
     }
 
-    // Sync State
-    if (pathname === '/api/syncState' && req.method === 'POST') {
+    // Submit Bowler Move
+    if (pathname === '/api/bowlerMove' && req.method === 'POST') {
       const room = rooms[data.roomCode?.toUpperCase()];
-      if (room) {
-        broadcast(room.code, 'stateSynced', data.state);
+      if (room && room.gameState) {
+        const gs = room.gameState;
+        gs.bowlerMove = { choices: data.choices, powerCard: data.powerCard || null };
+        gs.phase = 'WAITING_BOTH';
+        tryResolveBall(room);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
+    // Next Ball
+    if (pathname === '/api/nextBall' && req.method === 'POST') {
+      const room = rooms[data.roomCode?.toUpperCase()];
+      if (room && room.gameState) {
+        const gs = room.gameState;
+        const score = gs.scores[gs.innings];
+        const maxBalls = room.config.overs * 6;
+        const maxWickets = room.config.wickets;
+        const target = gs.innings === 2 ? gs.scores[1].score + 1 : null;
+
+        const isAllOut = score.wickets >= maxWickets;
+        const isOverComplete = score.balls >= maxBalls;
+        const targetChased = gs.innings === 2 && score.score >= target;
+
+        if (gs.innings === 1 && (isAllOut || isOverComplete)) {
+          // Switch innings
+          gs.innings = 2;
+          gs.phase = 'BATSMAN_SELECT';
+          const options = generateOptions();
+          gs.currentOptions = options;
+          gs.batsmanMove = undefined;
+          gs.bowlerMove = undefined;
+          broadcast(room.code, 'inningsChange', {
+            innings: 2,
+            scores: gs.scores,
+            currentOptions: options,
+            battingFirstId: gs.bowlingFirstId, // swap
+            bowlingFirstId: gs.battingFirstId,
+          });
+        } else if (gs.innings === 2 && (targetChased || isAllOut || isOverComplete)) {
+          gs.phase = 'GAME_OVER';
+          broadcast(room.code, 'gameOver', {
+            scores: gs.scores,
+            battingFirst: data.battingFirst,
+            bowlingFirst: data.bowlingFirst,
+          });
+        } else {
+          const options = generateOptions();
+          gs.currentOptions = options;
+          gs.batsmanMove = undefined;
+          gs.bowlerMove = undefined;
+          gs.phase = 'BATSMAN_SELECT';
+          broadcast(room.code, 'nextBall', {
+            scores: gs.scores,
+            innings: gs.innings,
+            currentOptions: options,
+          });
+        }
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
@@ -235,10 +414,9 @@ const server = http.createServer((req, res) => {
 });
 
 const PORT = process.env.PORT || 3001;
-
 server.listen(PORT, () => {
   console.log(`=================================`);
   console.log(`🚀 Multiverse Cricket Server running on port ${PORT}`);
-  console.log(`⚡ Zero-Dependency Realtime SSE Server Active!`);
+  console.log(`⚡ Authoritative Real-Time SSE Game Server`);
   console.log(`=================================`);
 });

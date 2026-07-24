@@ -20,17 +20,14 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
 
   useEffect(() => {
     // Socket Listeners
-    socket.connect();
-
-    const handleRoomCreated = ({ roomCode, players, config }) => {
+    const handleRoomCreated = ({ roomCode, playerId }) => {
       setConnecting(false);
-      setRoomState({
+      setRoomState(prev => ({
+        ...prev,
         roomCode,
-        players,
-        config,
         isHost: true,
-        myId: socket.id
-      });
+        myId: playerId,
+      }));
       setError('');
     };
 
@@ -47,17 +44,18 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
     };
 
     const handleRoomUpdated = ({ players, status }) => {
-      setRoomState((prev) => prev ? { ...prev, players, status } : null);
+      setRoomState(prev => prev ? { ...prev, players, status } : null);
     };
 
     const handleGameStart = ({ roomCode, players, config }) => {
+      const myId = socket.playerId;
       onRoomReady({
         roomCode,
         players,
         config,
         socket,
-        myId: socket.id,
-        isHost: socket.id === players[0].id
+        myId,
+        isHost: myId === players[0]?.id
       });
     };
 
