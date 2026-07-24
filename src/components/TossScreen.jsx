@@ -10,6 +10,11 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
   const [battingFirst, setBattingFirst] = useState(null);
   const [bowlingFirst, setBowlingFirst] = useState(null);
 
+  const isMultiplayer = Boolean(roomData?.socket);
+  const myPlayerName = roomData?.players.find(p => p.id === roomData.myId)?.name || player1Name;
+  const isMyTurnToFlip = isMultiplayer ? myPlayerName === player1Name : true;
+  const isMyTurnToChooseRole = isMultiplayer ? myPlayerName === tossWinner : true;
+
   // Sync multiplayer socket toss events
   React.useEffect(() => {
     if (!roomData?.socket) return;
@@ -36,14 +41,21 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
       setStep('SUMMARY');
     };
 
+    const handleMatchStarted = (finalTossData) => {
+      playRevealSound();
+      onTossComplete(finalTossData);
+    };
+
     socket.on('tossResult', handleTossResult);
     socket.on('tossCompleted', handleTossCompleted);
+    socket.on('matchStarted', handleMatchStarted);
 
     return () => {
       socket.off('tossResult', handleTossResult);
       socket.off('tossCompleted', handleTossCompleted);
+      socket.off('matchStarted', handleMatchStarted);
     };
-  }, [roomData]);
+  }, [roomData, onTossComplete]);
 
   const handlePredict = (value) => {
     playClickSound();
@@ -109,13 +121,23 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
 
   const handleStartMatch = () => {
     playRevealSound();
-    onTossComplete({
+    const finalTossData = {
       tossWinner,
       coinResult,
       choice,
       battingFirst,
       bowlingFirst
-    });
+    };
+
+    if (roomData?.socket) {
+      roomData.socket.emit('startMatch', {
+        roomCode: roomData.roomCode,
+        tossData: finalTossData
+      });
+      return;
+    }
+
+    onTossComplete(finalTossData);
   };
 
   return (
@@ -174,54 +196,62 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
 
         {/* ─── STEP 1: CALL ─── */}
         {step === 'CALL' && (
-          <div className="mt-8 animate-slide-up">
-            <p className="text-slate-300 mb-6 text-sm">
-              <span className="text-purple-400 font-bold">{player1Name}</span>, predict heads or tails:
-            </p>
+          !isMyTurnToFlip ? (
+            <div className="mt-8 animate-fade-in p-6 bg-slate-950/40 rounded-2xl border border-slate-800">
+              <p className="text-slate-300 text-sm animate-pulse">
+                Waiting for <span className="text-purple-400 font-bold">{player1Name}</span> to call the toss...
+              </p>
+            </div>
+          ) : (
+            <div className="mt-8 animate-slide-up">
+              <p className="text-slate-300 mb-6 text-sm">
+                <span className="text-purple-400 font-bold">{player1Name}</span>, predict heads or tails:
+              </p>
 
-            <div className="flex justify-center gap-4 mb-8">
+              <div className="flex justify-center gap-4 mb-8">
+                <button
+                  onClick={() => handlePredict('HEADS')}
+                  className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${
+                    predictionCall === 'HEADS'
+                      ? 'border-amber-400 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] scale-110'
+                      : 'border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:scale-105'
+                  }`}
+                >
+                  <span className="text-2xl">👑</span>
+                  <span className={`text-xs font-bold uppercase tracking-wider ${predictionCall === 'HEADS' ? 'text-amber-300' : 'text-slate-400'}`}>
+                    Heads
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => handlePredict('TAILS')}
+                  className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${
+                    predictionCall === 'TAILS'
+                      ? 'border-amber-400 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] scale-110'
+                      : 'border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:scale-105'
+                  }`}
+                >
+                  <span className="text-2xl">🌟</span>
+                  <span className={`text-xs font-bold uppercase tracking-wider ${predictionCall === 'TAILS' ? 'text-amber-300' : 'text-slate-400'}`}>
+                    Tails
+                  </span>
+                </button>
+              </div>
+
               <button
-                onClick={() => handlePredict('HEADS')}
-                className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${
-                  predictionCall === 'HEADS'
-                    ? 'border-amber-400 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] scale-110'
-                    : 'border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:scale-105'
+                onClick={handleFlipClick}
+                disabled={!predictionCall}
+                id="btn-flip-coin"
+                className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all duration-300 ${
+                  predictionCall
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)] hover:from-amber-400 hover:to-orange-400 hover:scale-105 active:scale-95'
+                    : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'
                 }`}
               >
-                <span className="text-2xl">👑</span>
-                <span className={`text-xs font-bold uppercase tracking-wider ${predictionCall === 'HEADS' ? 'text-amber-300' : 'text-slate-400'}`}>
-                  Heads
-                </span>
-              </button>
-
-              <button
-                onClick={() => handlePredict('TAILS')}
-                className={`w-28 h-28 rounded-full border-2 flex flex-col items-center justify-center gap-1.5 transition-all duration-300 ${
-                  predictionCall === 'TAILS'
-                    ? 'border-amber-400 bg-amber-500/20 shadow-[0_0_20px_rgba(245,158,11,0.4)] scale-110'
-                    : 'border-slate-800 bg-slate-900/50 hover:border-slate-600 hover:scale-105'
-                }`}
-              >
-                <span className="text-2xl">🌟</span>
-                <span className={`text-xs font-bold uppercase tracking-wider ${predictionCall === 'TAILS' ? 'text-amber-300' : 'text-slate-400'}`}>
-                  Tails
-                </span>
+                🪙 Flip Coin
               </button>
             </div>
-
-            <button
-              onClick={handleFlipClick}
-              disabled={!predictionCall}
-              id="btn-flip-coin"
-              className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all duration-300 ${
-                predictionCall
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)] hover:from-amber-400 hover:to-orange-400 hover:scale-105 active:scale-95'
-                  : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'
-              }`}
-            >
-              🪙 Flip Coin
-            </button>
-          </div>
+          )
         )}
 
         {/* ─── STEP 2: FLIPPING ─── */}
@@ -249,26 +279,36 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
               </h3>
             </div>
 
-            <p className="text-slate-400 mb-6 text-sm">
-              <span className="text-amber-300 font-bold">{tossWinner}</span>, choose your starting role:
-            </p>
+            {!isMyTurnToChooseRole ? (
+              <div className="p-6 bg-slate-950/40 rounded-2xl border border-slate-800 max-w-sm mx-auto">
+                <p className="text-slate-300 text-sm animate-pulse">
+                  Waiting for <span className="text-amber-300 font-bold">{tossWinner}</span> to choose starting role...
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-slate-400 mb-6 text-sm">
+                  <span className="text-amber-300 font-bold">{tossWinner}</span>, choose your starting role:
+                </p>
 
-            <div className="flex gap-4 max-w-sm mx-auto">
-              <button
-                onClick={() => handleChoiceClick('bat')}
-                id="btn-bat-first"
-                className="flex-1 px-6 py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold uppercase tracking-wider text-sm shadow-[0_0_15px_rgba(147,51,234,0.3)] transition-all duration-300 hover:scale-[1.03] active:scale-95"
-              >
-                🏏 Bat First
-              </button>
-              <button
-                onClick={() => handleChoiceClick('bowl')}
-                id="btn-bowl-first"
-                className="flex-1 px-6 py-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold uppercase tracking-wider text-sm shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all duration-300 hover:scale-[1.03] active:scale-95"
-              >
-                🎯 Bowl First
-              </button>
-            </div>
+                <div className="flex gap-4 max-w-sm mx-auto">
+                  <button
+                    onClick={() => handleChoiceClick('bat')}
+                    id="btn-bat-first"
+                    className="flex-1 px-6 py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold uppercase tracking-wider text-sm shadow-[0_0_15px_rgba(147,51,234,0.3)] transition-all duration-300 hover:scale-[1.03] active:scale-95"
+                  >
+                    🏏 Bat First
+                  </button>
+                  <button
+                    onClick={() => handleChoiceClick('bowl')}
+                    id="btn-bowl-first"
+                    className="flex-1 px-6 py-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold uppercase tracking-wider text-sm shadow-[0_0_15px_rgba(6,182,212,0.3)] transition-all duration-300 hover:scale-[1.03] active:scale-95"
+                  >
+                    🎯 Bowl First
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 

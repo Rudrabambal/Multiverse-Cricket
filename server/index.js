@@ -196,6 +196,17 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    // Start Match
+    if (pathname === '/api/startMatch' && req.method === 'POST') {
+      const room = rooms[data.roomCode?.toUpperCase()];
+      if (room) {
+        broadcast(room.code, 'matchStarted', data.tossData);
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+
     // Play Move
     if (pathname === '/api/playMove' && req.method === 'POST') {
       const room = rooms[data.roomCode?.toUpperCase()];

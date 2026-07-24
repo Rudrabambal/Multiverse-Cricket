@@ -36,7 +36,7 @@ class RealtimeSocket {
     };
 
     // Forward SSE custom events to registered listeners
-    const events = ['roomUpdated', 'gameStart', 'tossResult', 'tossCompleted', 'opponentMove', 'stateSynced', 'opponentLeft', 'errorMsg'];
+    const events = ['roomUpdated', 'gameStart', 'tossResult', 'tossCompleted', 'matchStarted', 'opponentMove', 'stateSynced', 'opponentLeft', 'errorMsg'];
     events.forEach(evt => {
       this.eventSource.addEventListener(evt, (e) => {
         try {
