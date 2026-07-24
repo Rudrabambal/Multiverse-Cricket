@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { formatOvers } from '../utils/gameLogic';
 import { saveMatchResult } from '../utils/storage';
 import { playRevealSound } from '../utils/audio';
-import Confetti from 'react-confetti';
-import { useWindowSize } from 'react-use'; // Note: might need this, or just hardcode if missing
 
 const ResultScreen = ({
   player1Name,

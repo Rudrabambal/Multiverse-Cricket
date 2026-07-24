@@ -3,6 +3,12 @@
 // ─────────────────────────────────────────────
 
 
+export const TRAITS = [
+  { id: 'AGGRESSIVE', name: 'Aggressive', description: 'Higher risk, higher reward option bounds', icon: '🔥' },
+  { id: 'DEFENSIVE', name: 'Defensive', description: 'Consistent low-risk scoring options', icon: '🛡️' },
+  { id: 'BALANCED', name: 'Balanced', description: 'Standard multiverse option spread', icon: '⚖️' }
+];
+
 export const POWER_CARDS = {
   BATSMAN: [
     { id: 'DOUBLE_REALITY', name: 'Double Reality', description: 'Selected runs are doubled', icon: '2️⃣' },
@@ -103,5 +109,19 @@ export function getOutcomeBgColor(outcome) {
     case '1': return 'bg-slate-800 border-slate-700 text-slate-200';
     case '0': return 'bg-slate-900 border-slate-800 text-slate-500';
     default: return 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300';
+  }
+}
+
+export function getOutcomeColor(outcome) {
+  switch (outcome) {
+    case '14': case '12': case '10': case '9': case '8': case '7': return 'text-amber-400';
+    case '6': case '5': return 'text-purple-400';
+    case '4': return 'text-cyan-400';
+    case '3': return 'text-emerald-400';
+    case '2': return 'text-green-400';
+    case '1': return 'text-slate-300';
+    case '0': return 'text-slate-500';
+    case 'W': return 'text-red-400';
+    default: return 'text-slate-400';
   }
 }
