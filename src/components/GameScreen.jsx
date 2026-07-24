@@ -23,6 +23,7 @@ const GameScreen = ({
   bowlingFirst,
   overs,
   wickets,
+  roomData,
   onGameEnd,
   onBackToSetup,
   onExitToHome,
@@ -38,6 +39,11 @@ const GameScreen = ({
 
   const batsmanName = innings === 1 ? battingFirst : bowlingFirst;
   const bowlerName = innings === 1 ? bowlingFirst : battingFirst;
+
+  const isMultiplayer = Boolean(roomData?.socket);
+  const myPlayerName = roomData?.players.find(p => p.id === roomData.myId)?.name || player1Name;
+  const isMyTurnToBat = isMultiplayer ? myPlayerName === batsmanName : true;
+  const isMyTurnToBowl = isMultiplayer ? myPlayerName === bowlerName : true;
 
   const [batsmanCards, setBatsmanCards] = useState({ DOUBLE_REALITY: 1, SAFE_REALITY: 1 });
   const [bowlerCards, setBowlerCards] = useState({ DOUBLE_GUESS: 1, REALITY_COLLAPSE: 1 });
@@ -58,13 +64,49 @@ const GameScreen = ({
   const [bowlerActiveCard, setBowlerActiveCard] = useState(null);
   const [ballResult, setBallResult] = useState(null);
   const [collapsedOptions, setCollapsedOptions] = useState([]);
+  const [waitingOpponent, setWaitingOpponent] = useState(false);
 
   useEffect(() => {
     if (step === 'BATSMAN_SELECT') {
       const data = generateOptions();
       setBallData(data);
+      setCollapsedOptions(data.options);
     }
   }, [step]);
+
+  // Online Multiplayer Socket Event Listeners
+  useEffect(() => {
+    if (!isMultiplayer) return;
+    const { socket, roomCode } = roomData;
+
+    const handleOpponentMove = ({ move }) => {
+      // Batsman submitted move -> Bowler can now select
+      setBattingChoice(move.battingChoice);
+      if (move.batsmanActiveCard) {
+        setBatsmanActiveCard(move.batsmanActiveCard);
+      }
+      setCollapsedOptions(move.ballDataOptions || []);
+      setBallData({ options: move.ballDataOptions });
+      setWaitingOpponent(false);
+      setStep('BOWLER_SELECT');
+    };
+
+    const handleStateSynced = (syncedState) => {
+      if (syncedState.scores) setScores(syncedState.scores);
+      if (syncedState.ballResult) setBallResult(syncedState.ballResult);
+      if (syncedState.step) setStep(syncedState.step);
+      if (syncedState.innings) setInnings(syncedState.innings);
+      setWaitingOpponent(false);
+    };
+
+    socket.on('opponentMove', handleOpponentMove);
+    socket.on('stateSynced', handleStateSynced);
+
+    return () => {
+      socket.off('opponentMove', handleOpponentMove);
+      socket.off('stateSynced', handleStateSynced);
+    };
+  }, [isMultiplayer, roomData]);
 
   const toggleBatsmanCard = (cardId) => {
     if (batsmanCards[cardId] <= 0) return;
@@ -78,7 +120,21 @@ const GameScreen = ({
       if (batsmanActiveCard) {
         setBatsmanCards(prev => ({ ...prev, [batsmanActiveCard]: prev[batsmanActiveCard] - 1 }));
       }
-      setStep('PASS_DEVICE');
+
+      if (isMultiplayer) {
+        setWaitingOpponent(true);
+        roomData.socket.emit('playMove', {
+          roomCode: roomData.roomCode,
+          move: {
+            battingChoice,
+            batsmanActiveCard,
+            ballDataOptions: ballData.options
+          }
+        });
+        setStep('WAITING_BOWLER');
+      } else {
+        setStep('PASS_DEVICE');
+      }
     }
   };
 
@@ -146,16 +202,35 @@ const GameScreen = ({
       else playRevealSound();
     }, 400);
 
-    setScores((prev) => {
-      const curr = { ...prev[innings] };
-      curr.score += result.runs;
-      if (result.isWicket) curr.wickets += 1;
-      curr.balls += 1;
-      curr.ballHistory = [...curr.ballHistory, { outcome: result.outcome, symbol: result.symbol }];
-      return { ...prev, [innings]: curr };
-    });
+    const nextScore = scores[innings].score + result.runs;
+    const nextWickets = scores[innings].wickets + (result.isWicket ? 1 : 0);
+    const nextBalls = scores[innings].balls + 1;
+    const nextHistory = [...scores[innings].ballHistory, { outcome: result.outcome, symbol: result.symbol }];
 
+    const updatedScores = {
+      ...scores,
+      [innings]: {
+        ...scores[innings],
+        score: nextScore,
+        wickets: nextWickets,
+        balls: nextBalls,
+        ballHistory: nextHistory
+      }
+    };
+
+    setScores(updatedScores);
     setStep('REVEAL');
+
+    if (isMultiplayer) {
+      roomData.socket.emit('syncState', {
+        roomCode: roomData.roomCode,
+        state: {
+          scores: updatedScores,
+          ballResult: result,
+          step: 'REVEAL'
+        }
+      });
+    }
   };
 
   const handleNextBall = () => {
@@ -167,8 +242,17 @@ const GameScreen = ({
     const targetChased = innings === 2 && currentData.score >= target;
 
     if (innings === 1) {
-      if (isOverComplete || isAllOut) setStep('INNINGS_BREAK');
-      else resetBall();
+      if (isOverComplete || isAllOut) {
+        setStep('INNINGS_BREAK');
+        if (isMultiplayer) {
+          roomData.socket.emit('syncState', {
+            roomCode: roomData.roomCode,
+            state: { step: 'INNINGS_BREAK' }
+          });
+        }
+      } else {
+        resetBall();
+      }
     } else {
       if (targetChased || isOverComplete || isAllOut) {
         onGameEnd({ innings1: scores[1], innings2: scores[2], battingFirst, bowlingFirst });
@@ -185,6 +269,13 @@ const GameScreen = ({
     setBowlerActiveCard(null);
     setBallResult(null);
     setStep('BATSMAN_SELECT');
+
+    if (isMultiplayer) {
+      roomData.socket.emit('syncState', {
+        roomCode: roomData.roomCode,
+        state: { step: 'BATSMAN_SELECT' }
+      });
+    }
   };
 
   const startInnings2 = () => {
@@ -253,91 +344,125 @@ const GameScreen = ({
       )}
 
       {step === 'BATSMAN_SELECT' && ballData && (
-        <div className="flex-1 flex flex-col gap-5 animate-slide-up">
-          <div className="text-center">
-            <h3 className="text-xl font-bold uppercase text-purple-300 mt-2">Choose your scoring reality</h3>
-            <p className="text-sm text-slate-400 mt-1"><span className="text-purple-400 font-bold">{batsmanName}</span></p>
-          </div>
-
-          <div className="grid grid-cols-2 md:flex md:flex-row justify-center gap-4">
-            {ballData.options.map((opt, idx) => (
-              <React.Fragment key={`bat-${idx}`}>
-                {renderOptionCard(opt, battingChoice === opt, () => { playClickSound(); setBattingChoice(opt); })}
-              </React.Fragment>
-            ))}
-          </div>
-
-          <div className="mt-2 bg-slate-950/40 p-4 rounded-2xl border border-slate-800">
-            <h4 className="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-3 text-center">Power Cards (Batsman)</h4>
-            <div className="flex gap-3 justify-center">
-              {POWER_CARDS.BATSMAN.map(card => {
-                const count = batsmanCards[card.id];
-                const isActive = batsmanActiveCard === card.id;
-                return (
-                  <button key={card.id} onClick={() => toggleBatsmanCard(card.id)} disabled={count <= 0 && !isActive} className={`flex-1 max-w-[150px] p-2 border rounded-xl flex flex-col items-center justify-center text-center transition-all ${isActive ? 'bg-purple-600/30 border-purple-400 ring-1 ring-purple-500' : count <= 0 ? 'bg-slate-900 border-slate-800 opacity-50 grayscale' : 'glassmorphism hover:border-slate-500'}`}>
-                    <span className="text-lg">{card.icon}</span><span className="text-[10px] font-bold text-slate-200 uppercase leading-tight mt-1">{card.name}</span><span className="text-[9px] text-purple-300 font-mono mt-1">{count} Left</span>
-                  </button>
-                );
-              })}
+        !isMyTurnToBat ? (
+          <div className="flex-1 flex flex-col justify-center items-center py-12 animate-fade-in text-center">
+            <div className="w-full max-w-md glassmorphism rounded-3xl p-8 border border-slate-800">
+              <div className="w-12 h-12 rounded-full bg-purple-950 border border-purple-500/30 text-purple-400 flex items-center justify-center mx-auto mb-4 animate-spin">
+                🏏
+              </div>
+              <h3 className="text-xl font-bold uppercase text-slate-100 mb-2">Opponent's Turn to Bat</h3>
+              <p className="text-slate-400 text-sm">
+                Waiting for <strong className="text-purple-300">{batsmanName}</strong> to select their shot...
+              </p>
             </div>
           </div>
+        ) : (
+          <div className="flex-1 flex flex-col gap-5 animate-slide-up">
+            <div className="text-center">
+              <h3 className="text-xl font-bold uppercase text-purple-300 mt-2">Choose your scoring reality</h3>
+              <p className="text-sm text-slate-400 mt-1"><span className="text-purple-400 font-bold">{batsmanName}</span> (YOU)</p>
+            </div>
 
-          <div className="flex justify-center mt-2 mb-8">
-            <button onClick={confirmBatsmanChoice} disabled={battingChoice === null} className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all ${battingChoice !== null ? 'bg-purple-600 text-white hover:scale-105' : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'}`}>🔒 Lock Choice & Pass Device</button>
+            <div className="grid grid-cols-2 md:flex md:flex-row justify-center gap-4">
+              {ballData.options.map((opt, idx) => (
+                <React.Fragment key={`bat-${idx}`}>
+                  {renderOptionCard(opt, battingChoice === opt, () => { playClickSound(); setBattingChoice(opt); })}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <div className="mt-2 bg-slate-950/40 p-4 rounded-2xl border border-slate-800">
+              <h4 className="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-3 text-center">Power Cards (Batsman)</h4>
+              <div className="flex gap-3 justify-center">
+                {POWER_CARDS.BATSMAN.map(card => {
+                  const count = batsmanCards[card.id];
+                  const isActive = batsmanActiveCard === card.id;
+                  return (
+                    <button key={card.id} onClick={() => toggleBatsmanCard(card.id)} disabled={count <= 0 && !isActive} className={`flex-1 max-w-[150px] p-2 border rounded-xl flex flex-col items-center justify-center text-center transition-all ${isActive ? 'bg-purple-600/30 border-purple-400 ring-1 ring-purple-500' : count <= 0 ? 'bg-slate-900 border-slate-800 opacity-50 grayscale' : 'glassmorphism hover:border-slate-500'}`}>
+                      <span className="text-lg">{card.icon}</span><span className="text-[10px] font-bold text-slate-200 uppercase leading-tight mt-1">{card.name}</span><span className="text-[9px] text-purple-300 font-mono mt-1">{count} Left</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-center mt-2 mb-8">
+              <button onClick={confirmBatsmanChoice} disabled={battingChoice === null} className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all ${battingChoice !== null ? 'bg-purple-600 text-white hover:scale-105' : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'}`}>
+                {isMultiplayer ? '🔒 Lock Choice & Submit' : '🔒 Lock Choice & Pass Device'}
+              </button>
+            </div>
           </div>
-        </div>
+        )
       )}
 
-      {step === 'PASS_DEVICE' && (
-        <div className="flex-1 flex flex-col justify-center items-center py-10 animate-fade-in text-center">
-          <div className="w-full max-w-md glassmorphism rounded-3xl p-8">
-            <h3 className="text-2xl font-extrabold uppercase mb-2">Pass the device to the bowler</h3>
-            <p className="text-sm text-slate-400 mb-8"><span className="text-purple-400 font-bold">{batsmanName}</span> has hidden their choice.<br/>Hand the device to <span className="text-cyan-400 font-bold">{bowlerName}</span>.</p>
-            <button onClick={startBowlerSelect} className="w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-cyan-600 to-indigo-600 text-white font-bold uppercase tracking-wider hover:scale-[1.01]">I am {bowlerName} — Predict Options 🎳</button>
+      {step === 'WAITING_BOWLER' && (
+        <div className="flex-1 flex flex-col justify-center items-center py-12 animate-fade-in text-center">
+          <div className="w-full max-w-md glassmorphism rounded-3xl p-8 border border-slate-800">
+            <div className="w-12 h-12 rounded-full bg-cyan-950 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto mb-4 animate-bounce">
+              🎯
+            </div>
+            <h3 className="text-xl font-bold uppercase text-slate-100 mb-2">Choice Locked!</h3>
+            <p className="text-slate-400 text-sm">
+              Waiting for <strong className="text-cyan-300">{bowlerName}</strong> to predict options...
+            </p>
           </div>
         </div>
       )}
 
       {step === 'BOWLER_SELECT' && (
-        <div className="flex-1 flex flex-col gap-5 animate-slide-up">
-          <div className="text-center">
-            <h3 className="text-xl font-bold uppercase text-cyan-300 mt-2">Predict the batsman's reality</h3>
-            <p className="text-sm text-slate-400 mt-1"><span className="text-cyan-400 font-bold">{bowlerName}</span></p>
-          </div>
-
-          <div className="grid grid-cols-2 md:flex md:flex-row justify-center gap-4">
-            {collapsedOptions.map((opt, idx) => (
-              <React.Fragment key={`bowl-${idx}`}>
-                {renderOptionCard(opt, bowlingChoices.includes(opt), () => handleBowlingSelect(opt))}
-              </React.Fragment>
-            ))}
-          </div>
-
-          <div className="mt-2 bg-slate-950/40 p-4 rounded-2xl border border-slate-800">
-            <h4 className="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-3 text-center">Power Cards (Bowler)</h4>
-            <div className="flex gap-3 justify-center">
-              {POWER_CARDS.BOWLER.map(card => {
-                const count = bowlerCards[card.id];
-                const isActive = bowlerActiveCard === card.id;
-                return (
-                  <button key={card.id} onClick={() => toggleBowlerCard(card.id)} disabled={count <= 0 && !isActive} className={`flex-1 max-w-[150px] p-2 border rounded-xl flex flex-col items-center justify-center text-center transition-all ${isActive ? 'bg-cyan-600/30 border-cyan-400 ring-1 ring-cyan-500' : count <= 0 ? 'bg-slate-900 border-slate-800 opacity-50 grayscale' : 'glassmorphism hover:border-slate-500'}`}>
-                    <span className="text-lg">{card.icon}</span><span className="text-[10px] font-bold text-slate-200 uppercase leading-tight mt-1">{card.name}</span><span className="text-[9px] text-cyan-300 font-mono mt-1">{count} Left</span>
-                  </button>
-                );
-              })}
+        !isMyTurnToBowl ? (
+          <div className="flex-1 flex flex-col justify-center items-center py-12 animate-fade-in text-center">
+            <div className="w-full max-w-md glassmorphism rounded-3xl p-8 border border-slate-800">
+              <div className="w-12 h-12 rounded-full bg-cyan-950 border border-cyan-500/30 text-cyan-400 flex items-center justify-center mx-auto mb-4 animate-spin">
+                🎯
+              </div>
+              <h3 className="text-xl font-bold uppercase text-slate-100 mb-2">Bowler's Turn to Predict</h3>
+              <p className="text-slate-400 text-sm">
+                Waiting for <strong className="text-cyan-300">{bowlerName}</strong> to predict your shot...
+              </p>
             </div>
           </div>
+        ) : (
+          <div className="flex-1 flex flex-col gap-5 animate-slide-up">
+            <div className="text-center">
+              <h3 className="text-xl font-bold uppercase text-cyan-300 mt-2">Predict the batsman's reality</h3>
+              <p className="text-sm text-slate-400 mt-1"><span className="text-cyan-400 font-bold">{bowlerName}</span> (YOU)</p>
+            </div>
 
-          <div className="flex justify-center mt-2 mb-8">
-            <button 
-              onClick={confirmBowlerChoice} 
-              disabled={bowlingChoices.length === 0 || (bowlerActiveCard === 'DOUBLE_GUESS' && bowlingChoices.length !== 2)} 
-              className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all ${bowlingChoices.length > 0 && !(bowlerActiveCard === 'DOUBLE_GUESS' && bowlingChoices.length !== 2) ? 'bg-cyan-600 text-white hover:scale-105' : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'}`}
-            >
-              ⚡ Reveal Result
-            </button>
+            <div className="grid grid-cols-2 md:flex md:flex-row justify-center gap-4">
+              {collapsedOptions.map((opt, idx) => (
+                <React.Fragment key={`bowl-${idx}`}>
+                  {renderOptionCard(opt, bowlingChoices.includes(opt), () => handleBowlingSelect(opt))}
+                </React.Fragment>
+              ))}
+            </div>
+
+            <div className="mt-2 bg-slate-950/40 p-4 rounded-2xl border border-slate-800">
+              <h4 className="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-3 text-center">Power Cards (Bowler)</h4>
+              <div className="flex gap-3 justify-center">
+                {POWER_CARDS.BOWLER.map(card => {
+                  const count = bowlerCards[card.id];
+                  const isActive = bowlerActiveCard === card.id;
+                  return (
+                    <button key={card.id} onClick={() => toggleBowlerCard(card.id)} disabled={count <= 0 && !isActive} className={`flex-1 max-w-[150px] p-2 border rounded-xl flex flex-col items-center justify-center text-center transition-all ${isActive ? 'bg-cyan-600/30 border-cyan-400 ring-1 ring-cyan-500' : count <= 0 ? 'bg-slate-900 border-slate-800 opacity-50 grayscale' : 'glassmorphism hover:border-slate-500'}`}>
+                      <span className="text-lg">{card.icon}</span><span className="text-[10px] font-bold text-slate-200 uppercase leading-tight mt-1">{card.name}</span><span className="text-[9px] text-cyan-300 font-mono mt-1">{count} Left</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-center mt-2 mb-8">
+              <button 
+                onClick={confirmBowlerChoice} 
+                disabled={bowlingChoices.length === 0 || (bowlerActiveCard === 'DOUBLE_GUESS' && bowlingChoices.length !== 2)} 
+                className={`px-8 py-3.5 rounded-2xl font-bold uppercase tracking-wider text-sm transition-all ${bowlingChoices.length > 0 && !(bowlerActiveCard === 'DOUBLE_GUESS' && bowlingChoices.length !== 2) ? 'bg-cyan-600 text-white hover:scale-105' : 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed'}`}
+              >
+                ⚡ Reveal Result
+              </button>
+            </div>
           </div>
-        </div>
+        )
       )}
 
       {step === 'REVEAL' && ballResult && (

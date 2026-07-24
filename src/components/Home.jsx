@@ -59,7 +59,7 @@ const HowToPlay = ({ onClose }) => (
   </div>
 );
 
-const Home = ({ onStart }) => {
+const Home = ({ onStart, onStartPrivateRoom }) => {
   const [showHowTo, setShowHowTo] = useState(false);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
@@ -90,20 +90,31 @@ const Home = ({ onStart }) => {
         <button
           onClick={onStart}
           id="btn-start-match"
-          className="group relative px-10 py-4 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-lg uppercase tracking-wider shadow-[0_0_20px_rgba(147,51,234,0.4)] transition-all duration-300 hover:shadow-[0_0_40px_rgba(147,51,234,0.7)] hover:scale-105 active:scale-95"
+          className="group relative px-8 py-4 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-base sm:text-lg uppercase tracking-wider shadow-[0_0_20px_rgba(147,51,234,0.4)] transition-all duration-300 hover:shadow-[0_0_40px_rgba(147,51,234,0.7)] hover:scale-105 active:scale-95"
         >
-          <span className="flex items-center gap-3">
-            <span className="text-xl">▶</span> Start Match
+          <span className="flex items-center gap-2">
+            <span className="text-xl">🎮</span> Pass & Play
           </span>
           <div className="absolute inset-0 rounded-full border border-purple-400/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
         </button>
 
         <button
+          onClick={onStartPrivateRoom}
+          id="btn-private-room"
+          className="group relative px-8 py-4 rounded-full bg-gradient-to-r from-cyan-600 to-teal-600 text-white font-bold text-base sm:text-lg uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all duration-300 hover:shadow-[0_0_40px_rgba(6,182,212,0.7)] hover:scale-105 active:scale-95"
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-xl">🔑</span> Private Room
+          </span>
+          <div className="absolute inset-0 rounded-full border border-cyan-400/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        </button>
+
+        <button
           onClick={() => setShowHowTo(true)}
           id="btn-how-to-play"
-          className="px-10 py-4 rounded-full border border-slate-700 text-slate-300 font-semibold text-lg uppercase tracking-wider transition-all duration-300 hover:border-slate-500 hover:text-white hover:bg-slate-900/50 active:scale-95"
+          className="px-8 py-4 rounded-full border border-slate-700 text-slate-300 font-semibold text-base sm:text-lg uppercase tracking-wider transition-all duration-300 hover:border-slate-500 hover:text-white hover:bg-slate-900/50 active:scale-95"
         >
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-2">
             <span className="text-xl">❓</span> Rules
           </span>
         </button>

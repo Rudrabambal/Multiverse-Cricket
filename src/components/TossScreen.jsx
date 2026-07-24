@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { playClickSound, playLockSound, playRevealSound } from '../utils/audio';
 
-const TossScreen = ({ player1Name, player2Name, overs, wickets, onTossComplete, onBack }) => {
+const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onTossComplete, onBack }) => {
   const [step, setStep] = useState('CALL'); // CALL → FLIPPING → RESULT → SUMMARY
   const [predictionCall, setPredictionCall] = useState(null); // 'HEADS' | 'TAILS'
   const [coinResult, setCoinResult] = useState(null); // 'HEADS' | 'TAILS'
@@ -9,6 +9,41 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, onTossComplete, 
   const [choice, setChoice] = useState(null); // 'bat' | 'bowl'
   const [battingFirst, setBattingFirst] = useState(null);
   const [bowlingFirst, setBowlingFirst] = useState(null);
+
+  // Sync multiplayer socket toss events
+  React.useEffect(() => {
+    if (!roomData?.socket) return;
+    const { socket } = roomData;
+
+    const handleTossResult = (resultData) => {
+      setStep('FLIPPING');
+      setCoinResult(resultData.result);
+      setTossWinner(resultData.winnerName);
+      setTimeout(() => {
+        playRevealSound();
+        setStep('RESULT');
+      }, 2500);
+    };
+
+    const handleTossCompleted = ({ battingFirstId, bowlingFirstId }) => {
+      const p1 = roomData.players[0];
+      const p2 = roomData.players[1];
+      const bat = p1.id === battingFirstId ? p1.name : p2.name;
+      const bowl = p1.id === bowlingFirstId ? p1.name : p2.name;
+
+      setBattingFirst(bat);
+      setBowlingFirst(bowl);
+      setStep('SUMMARY');
+    };
+
+    socket.on('tossResult', handleTossResult);
+    socket.on('tossCompleted', handleTossCompleted);
+
+    return () => {
+      socket.off('tossResult', handleTossResult);
+      socket.off('tossCompleted', handleTossCompleted);
+    };
+  }, [roomData]);
 
   const handlePredict = (value) => {
     playClickSound();
@@ -18,6 +53,15 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, onTossComplete, 
   const handleFlipClick = () => {
     if (!predictionCall) return;
     playClickSound();
+
+    if (roomData?.socket) {
+      roomData.socket.emit('tossCall', {
+        roomCode: roomData.roomCode,
+        call: predictionCall
+      });
+      return;
+    }
+
     setStep('FLIPPING');
     
     // Determine toss result randomly
@@ -37,6 +81,15 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, onTossComplete, 
 
   const handleChoiceClick = (chosen) => {
     playLockSound();
+
+    if (roomData?.socket) {
+      roomData.socket.emit('tossDecision', {
+        roomCode: roomData.roomCode,
+        decision: chosen === 'bat' ? 'BAT' : 'BOWL'
+      });
+      return;
+    }
+
     const tossLoser = tossWinner === player1Name ? player2Name : player1Name;
     
     let batting, bowling;

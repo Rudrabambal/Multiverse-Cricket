@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Home from './components/Home';
 import PlayerSetup from './components/PlayerSetup';
+import PrivateRoom from './components/PrivateRoom';
 import TossScreen from './components/TossScreen';
 import GameScreen from './components/GameScreen';
 import ResultScreen from './components/ResultScreen';
@@ -9,7 +10,7 @@ import { Star } from 'lucide-react';
 import { initAudio, playClickSound } from './utils/audio';
 
 const App = () => {
-  const [screen, setScreen] = useState('HOME'); // HOME, SETUP, TOSS, PLAY, RESULT, STATS
+  const [screen, setScreen] = useState('HOME'); // HOME, SETUP, PRIVATE_ROOM, TOSS, PLAY, RESULT, STATS
   
   // Game Settings
   const [matchConfig, setMatchConfig] = useState({
@@ -19,6 +20,9 @@ const App = () => {
     wickets: 1
   });
   
+  // Online Private Room State
+  const [roomData, setRoomData] = useState(null);
+
   // Toss State
   const [tossData, setTossData] = useState(null);
   
@@ -37,7 +41,25 @@ const App = () => {
 
   const handleStartSetup = () => {
     playClickSound();
+    setRoomData(null);
     setScreen('SETUP');
+  };
+
+  const handleStartPrivateRoom = () => {
+    playClickSound();
+    setRoomData(null);
+    setScreen('PRIVATE_ROOM');
+  };
+
+  const handleRoomReady = (data) => {
+    setRoomData(data);
+    setMatchConfig({
+      player1Name: data.players[0].name,
+      player2Name: data.players[1].name,
+      overs: data.config.overs || 1,
+      wickets: data.config.wickets || 1
+    });
+    setScreen('TOSS');
   };
 
   const handleStartGame = (config) => {
@@ -95,13 +117,20 @@ const App = () => {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col max-w-5xl w-full mx-auto z-10 relative">
         {screen === 'HOME' && (
-          <Home onStart={handleStartSetup} />
+          <Home onStart={handleStartSetup} onStartPrivateRoom={handleStartPrivateRoom} />
         )}
         
         {screen === 'SETUP' && (
           <PlayerSetup 
             onBack={handleBackToHome} 
             onStartGame={handleStartGame} 
+          />
+        )}
+
+        {screen === 'PRIVATE_ROOM' && (
+          <PrivateRoom 
+            onBack={handleBackToHome}
+            onRoomReady={handleRoomReady}
           />
         )}
         
@@ -111,8 +140,9 @@ const App = () => {
             player2Name={matchConfig.player2Name} 
             overs={matchConfig.overs}
             wickets={matchConfig.wickets}
+            roomData={roomData}
             onTossComplete={handleTossComplete} 
-            onBack={() => setScreen('SETUP')}
+            onBack={() => setScreen(roomData ? 'PRIVATE_ROOM' : 'SETUP')}
           />
         )}
         
@@ -124,8 +154,9 @@ const App = () => {
             bowlingFirst={tossData.bowlingFirst}
             overs={matchConfig.overs}
             wickets={matchConfig.wickets}
+            roomData={roomData}
             onGameEnd={handleGameEnd} 
-            onBackToSetup={() => setScreen('SETUP')}
+            onBackToSetup={() => setScreen(roomData ? 'PRIVATE_ROOM' : 'SETUP')}
             onExitToHome={handleRestart}
           />
         )}
