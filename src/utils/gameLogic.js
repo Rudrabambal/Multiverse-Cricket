@@ -93,16 +93,15 @@ export function formatOvers(balls) {
   return `${overs}.${remainingBalls}`;
 }
 
-export function getOutcomeColor(outcome) {
+export function getOutcomeBgColor(outcome) {
   switch (outcome) {
-    case '14': case '12': case '10': case '9': case '8': case '7': return 'text-amber-400';
-    case '6': case '5': return 'text-purple-400';
-    case '4': return 'text-cyan-400';
-    case '3': return 'text-emerald-400';
-    case '2': return 'text-green-400';
-    case '1': return 'text-slate-300';
-    case '0': return 'text-slate-500';
-    case 'W': return 'text-red-400';
-    default: return 'text-slate-400';
+    case 'W': return 'bg-red-500/20 border-red-500/40 text-red-400';
+    case '6': case '14': case '12': case '10': case '9': case '8': case '7': return 'bg-purple-500/20 border-purple-500/40 text-purple-300';
+    case '5': case '4': return 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300';
+    case '3': return 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300';
+    case '2': return 'bg-green-500/20 border-green-500/40 text-green-300';
+    case '1': return 'bg-slate-800 border-slate-700 text-slate-200';
+    case '0': return 'bg-slate-900 border-slate-800 text-slate-500';
+    default: return 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300';
   }
 }
