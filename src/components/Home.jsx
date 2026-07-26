@@ -20,7 +20,7 @@ const HowToPlay = ({ onClose }) => (
           <span className="text-2xl">🎲</span>
           <div>
             <h4 className="font-bold text-slate-200">2. Generate Options</h4>
-            <p className="text-slate-400">Every ball generates 3 random unique run options from 0, 1, 2, 3, 4, 6.</p>
+            <p className="text-slate-400">Every ball generates 4 random unique scoring options (runs, Wides, No Balls).</p>
           </div>
         </div>
         
@@ -28,7 +28,7 @@ const HowToPlay = ({ onClose }) => (
           <span className="text-2xl">🤫</span>
           <div>
             <h4 className="font-bold text-slate-200">3. Secret Selection</h4>
-            <p className="text-slate-400">The Batsman secretly selects one of the 3 options and hides their choice.</p>
+            <p className="text-slate-400">The Batsman secretly selects one of the 4 options and hides their choice.</p>
           </div>
         </div>
         

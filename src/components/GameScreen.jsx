@@ -61,13 +61,24 @@ const GameScreen = ({
     1: { score: 0, wickets: 0, balls: 0, ballHistory: [] },
     2: { score: 0, wickets: 0, balls: 0, ballHistory: [] },
   });
-  const [batsmanName, setBatsmanName] = useState(battingFirst);
-  const [bowlerName, setBowlerName] = useState(bowlingFirst);
+  const [batsmanId, setBatsmanId] = useState(isMultiplayer ? roomData.battingFirstId : null);
+  const [bowlerId, setBowlerId] = useState(isMultiplayer ? roomData.bowlingFirstId : null);
 
-  // Multiplayer: figure out this device's role
-  const myPlayerName = roomData?.players.find(p => p.id === roomData.myId)?.name;
-  const isMyTurnToBat = isMultiplayer ? myPlayerName === batsmanName : true;
-  const isMyTurnToBowl = isMultiplayer ? myPlayerName === bowlerName : true;
+  const [batsmanNameState, setBatsmanNameState] = useState(battingFirst);
+  const [bowlerNameState, setBowlerNameState] = useState(bowlingFirst);
+
+  const getPlayerNameById = (id, fallback) => {
+    if (!isMultiplayer || !roomData?.players) return fallback;
+    const p = roomData.players.find(pl => pl.id === id);
+    return p ? p.name : fallback;
+  };
+
+  const batsmanName = isMultiplayer ? getPlayerNameById(batsmanId, batsmanNameState) : batsmanNameState;
+  const bowlerName = isMultiplayer ? getPlayerNameById(bowlerId, bowlerNameState) : bowlerNameState;
+
+  // Multiplayer: figure out this device's role using unique IDs
+  const isMyTurnToBat = isMultiplayer ? roomData.myId === batsmanId : true;
+  const isMyTurnToBowl = isMultiplayer ? roomData.myId === bowlerId : true;
 
   // ─── Ball State ───
   const [step, setStep] = useState('BATSMAN_SELECT');
@@ -130,7 +141,7 @@ const GameScreen = ({
       }
       if (matchOver) {
         setTimeout(() => {
-          onGameEnd({ innings1: newScores[1], innings2: newScores[2], battingFirst, bowlingFirst });
+          onGameEnd({ innings1: newScores[1], innings2: newScores[2], battingFirst, bowlingFirst, maxWickets: wickets, maxOvers: overs });
         }, 2500);
       }
     };
@@ -147,13 +158,8 @@ const GameScreen = ({
     const handleInningsChange = ({ innings: newInnings, scores: newScores, currentOptions: opts, battingFirstId, bowlingFirstId }) => {
       setScores(newScores);
       setInnings(newInnings);
-      const p1 = roomData.players[0];
-      const p2 = roomData.players[1];
-      // In innings 2 the roles swap
-      const newBatter = p1.id === battingFirstId ? p1.name : p2.name;
-      const newBowler = p1.id === bowlingFirstId ? p1.name : p2.name;
-      setBatsmanName(newBatter);
-      setBowlerName(newBowler);
+      setBatsmanId(battingFirstId);
+      setBowlerId(bowlingFirstId);
       setCurrentOptions(opts);
       setCollapsedOptions(opts);
       setBatsmanCards({ DOUBLE_REALITY: 1, SAFE_REALITY: 1 });
@@ -163,14 +169,21 @@ const GameScreen = ({
     };
 
     const handleGameOver = ({ scores: newScores }) => {
-      onGameEnd({ innings1: newScores[1], innings2: newScores[2], battingFirst, bowlingFirst });
+      onGameEnd({ innings1: newScores[1], innings2: newScores[2], battingFirst, bowlingFirst, maxWickets: wickets, maxOvers: overs });
     };
 
     // Receive options on match start / reconnect
-    const handleGameState = ({ scores: s, innings: i, currentOptions: opts }) => {
+    const handleGameState = ({ scores: s, innings: i, currentOptions: opts, battingFirstId, bowlingFirstId }) => {
       if (s) setScores(s);
       if (i) setInnings(i);
       if (opts) { setCurrentOptions(opts); setCollapsedOptions(opts); }
+      if (battingFirstId) setBatsmanId(battingFirstId);
+      if (bowlingFirstId) setBowlerId(bowlingFirstId);
+    };
+
+    const handleOpponentLeft = ({ message }) => {
+      alert(message || 'Your opponent disconnected from the match.');
+      onExitToHome();
     };
 
     socket.on('batsmanMoved', handleBatsmanMoved);
@@ -179,6 +192,7 @@ const GameScreen = ({
     socket.on('inningsChange', handleInningsChange);
     socket.on('gameOver', handleGameOver);
     socket.on('gameState', handleGameState);
+    socket.on('opponentLeft', handleOpponentLeft);
 
     return () => {
       socket.off('batsmanMoved', handleBatsmanMoved);
@@ -187,8 +201,9 @@ const GameScreen = ({
       socket.off('inningsChange', handleInningsChange);
       socket.off('gameOver', handleGameOver);
       socket.off('gameState', handleGameState);
+      socket.off('opponentLeft', handleOpponentLeft);
     };
-  }, [isMultiplayer, roomData, batsmanName, bowlerName, battingFirst, bowlingFirst, onGameEnd]);
+  }, [isMultiplayer, roomData, batsmanName, bowlerName, battingFirst, bowlingFirst, onGameEnd, onExitToHome, wickets, overs]);
 
   // Set initial options from roomData (passed in from matchStarted event)
   useEffect(() => {
@@ -217,10 +232,16 @@ const GameScreen = ({
     if (bowlerCards[cardId] <= 0) return;
     playClickSound();
     if (cardId === 'REALITY_COLLAPSE' && bowlerActiveCard !== 'REALITY_COLLAPSE') {
-      // Remove one random non-correct option (local visual only; server doesn't know batsman choice)
-      const newOpts = [...currentOptions];
-      const randomIdx = Math.floor(Math.random() * newOpts.length);
-      newOpts.splice(randomIdx, 1);
+      // Remove one incorrect option (in local mode, ensure it does not remove batsman's secret choice)
+      let incorrectOpts = currentOptions;
+      if (!isMultiplayer && battingChoice) {
+        incorrectOpts = currentOptions.filter(opt => opt !== battingChoice);
+      }
+      const optionToRemove = incorrectOpts.length > 0 
+        ? incorrectOpts[Math.floor(Math.random() * incorrectOpts.length)]
+        : currentOptions[Math.floor(Math.random() * currentOptions.length)];
+
+      const newOpts = currentOptions.filter(opt => opt !== optionToRemove);
       setCollapsedOptions(newOpts);
       setBowlingChoices([]);
     } else if (bowlerActiveCard === 'REALITY_COLLAPSE') {
@@ -347,7 +368,7 @@ const GameScreen = ({
     if (innings === 1 && (isAllOut || isOverComplete)) {
       setStep('INNINGS_BREAK');
     } else if (innings === 2 && (targetChased || isAllOut || isOverComplete)) {
-      onGameEnd({ innings1: scores[1], innings2: scores[2], battingFirst, bowlingFirst });
+      onGameEnd({ innings1: scores[1], innings2: scores[2], battingFirst, bowlingFirst, maxWickets: wickets, maxOvers: overs });
     } else {
       const OPTION_POOL = ['1 Run','2 Runs','3 Runs','4 Runs','6 Runs','Wide +1','No Ball +1','No Ball +2','No Ball +4','No Ball +6'];
       const opts = [...OPTION_POOL].sort(() => 0.5 - Math.random()).slice(0, 4);
@@ -365,8 +386,8 @@ const GameScreen = ({
       return;
     }
     setInnings(2);
-    setBatsmanName(bowlingFirst);
-    setBowlerName(battingFirst);
+    setBatsmanNameState(bowlingFirst);
+    setBowlerNameState(battingFirst);
     setBatsmanCards({ DOUBLE_REALITY: 1, SAFE_REALITY: 1 });
     setBowlerCards({ DOUBLE_GUESS: 1, REALITY_COLLAPSE: 1 });
     const OPTION_POOL = ['1 Run','2 Runs','3 Runs','4 Runs','6 Runs','Wide +1','No Ball +1','No Ball +2','No Ball +4','No Ball +6'];
@@ -416,14 +437,9 @@ const GameScreen = ({
               <p className="text-slate-400 font-mono tracking-widest">{battingFirst} scored</p>
               <h4 className="text-5xl font-black text-purple-400 mt-2">{scores[1].score} <span className="text-xl text-slate-500">/ {scores[1].wickets}w</span></h4>
             </div>
-            {!isMultiplayer && (
-              <button onClick={startInnings2} className="w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold uppercase text-sm hover:scale-105 transition-all">
-                Start Innings 2 →
-              </button>
-            )}
-            {isMultiplayer && (
-              <p className="text-slate-400 text-sm animate-pulse">Innings 2 starting soon...</p>
-            )}
+            <button onClick={isMultiplayer ? handleNextBall : startInnings2} className="w-full px-6 py-4 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold uppercase text-sm hover:scale-105 transition-all shadow-[0_0_20px_rgba(147,51,234,0.4)]">
+              Start Innings 2 →
+            </button>
           </div>
         </div>
       )}

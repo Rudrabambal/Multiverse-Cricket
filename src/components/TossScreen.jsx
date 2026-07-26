@@ -10,10 +10,12 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
   const [battingFirst, setBattingFirst] = useState(null);
   const [bowlingFirst, setBowlingFirst] = useState(null);
 
+  const [tossWinnerId, setTossWinnerId] = useState(null);
+
   const isMultiplayer = Boolean(roomData?.socket);
   const myPlayerName = roomData?.players.find(p => p.id === roomData.myId)?.name || player1Name;
-  const isMyTurnToFlip = isMultiplayer ? myPlayerName === player1Name : true;
-  const isMyTurnToChooseRole = isMultiplayer ? myPlayerName === tossWinner : true;
+  const isMyTurnToFlip = isMultiplayer ? (roomData.myId === roomData.players[0]?.id) : true;
+  const isMyTurnToChooseRole = isMultiplayer ? (roomData.myId === tossWinnerId) : true;
 
   // Sync multiplayer socket toss events
   React.useEffect(() => {
@@ -24,6 +26,7 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
       setStep('FLIPPING');
       setCoinResult(resultData.result);
       setTossWinner(resultData.winnerName);
+      setTossWinnerId(resultData.winnerId);
       setTimeout(() => {
         playRevealSound();
         setStep('RESULT');
@@ -47,6 +50,8 @@ const TossScreen = ({ player1Name, player2Name, overs, wickets, roomData, onToss
       onTossComplete({
         ...data.tossData,
         currentOptions: data.currentOptions,
+        battingFirstId: data.battingFirstId,
+        bowlingFirstId: data.bowlingFirstId,
       });
     };
 

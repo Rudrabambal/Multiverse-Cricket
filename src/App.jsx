@@ -71,7 +71,12 @@ const App = () => {
     setTossData(data);
     // If currentOptions came from the server (multiplayer), store in roomData
     if (data.currentOptions && roomData) {
-      setRoomData(prev => prev ? { ...prev, currentOptions: data.currentOptions } : prev);
+      setRoomData(prev => prev ? {
+        ...prev,
+        currentOptions: data.currentOptions,
+        battingFirstId: data.battingFirstId,
+        bowlingFirstId: data.bowlingFirstId,
+      } : prev);
     }
     setScreen('PLAY');
   };
@@ -113,7 +118,7 @@ const App = () => {
             Stats
           </button>
           <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest flex items-center gap-1">
-            <Star className="w-3 h-3 text-purple-400 animate-spin" /> V2.0.0
+            <Star className="w-3 h-3 text-purple-400 animate-spin" /> V4.0.0
           </span>
         </div>
       </header>

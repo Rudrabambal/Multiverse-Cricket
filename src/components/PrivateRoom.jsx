@@ -20,14 +20,15 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
 
   useEffect(() => {
     // Socket Listeners
-    const handleRoomCreated = ({ roomCode, playerId }) => {
+    const handleRoomCreated = ({ roomCode, playerId, players, config }) => {
       setConnecting(false);
-      setRoomState(prev => ({
-        ...prev,
+      setRoomState({
         roomCode,
+        players,
+        config,
         isHost: true,
         myId: playerId,
-      }));
+      });
       setError('');
     };
 
@@ -133,6 +134,11 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
     socket.disconnect();
     setRoomState(null);
     setError('');
+  };
+
+  const handleStartGame = () => {
+    playClickSound();
+    socket.emit('startGame', { roomCode: roomState.roomCode });
   };
 
   return (
@@ -339,11 +345,11 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
                 <span className="flex items-center gap-1.5">
                   <Users className="w-4 h-4 text-cyan-400" /> Players Connected
                 </span>
-                <span>{roomState.players.length} / 2</span>
+                <span>{(roomState.players || []).length} / 2</span>
               </div>
 
               <div className="space-y-3">
-                {roomState.players.map((p, idx) => (
+                {(roomState.players || []).map((p, idx) => (
                   <div
                     key={p.id || idx}
                     className="flex items-center justify-between bg-slate-900/80 border border-slate-800 px-4 py-3 rounded-xl"
@@ -361,7 +367,7 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
                           HOST
                         </span>
                       )}
-                      {p.id === socket.id && (
+                      {p.id === roomState.myId && (
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-900/50 text-cyan-300 border border-cyan-700/50">
                           YOU
                         </span>
@@ -370,7 +376,7 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
                   </div>
                 ))}
 
-                {roomState.players.length < 2 && (
+                {(roomState.players || []).length < 2 && (
                   <div className="flex items-center gap-3 bg-slate-950/40 border border-dashed border-slate-800 px-4 py-3 rounded-xl text-slate-500 text-sm">
                     <Loader2 className="w-4 h-4 animate-spin text-purple-400 shrink-0" />
                     <span>Waiting for Player 2 to join...</span>
@@ -380,10 +386,19 @@ const PrivateRoom = ({ onBack, onRoomReady }) => {
             </div>
 
             {/* Room Info */}
-            <div className="flex justify-around text-xs font-mono text-slate-400 bg-slate-950/30 py-3 rounded-xl border border-slate-800/50">
+            <div className="flex justify-around text-xs font-mono text-slate-400 bg-slate-950/30 py-3 rounded-xl border border-slate-800/50 mb-4">
               <span>Overs: <strong className="text-slate-200">{roomState.config?.overs || 1}</strong></span>
               <span>Wickets: <strong className="text-slate-200">{roomState.config?.wickets || 1}</strong></span>
             </div>
+
+            {roomState.isHost && (roomState.players || []).length === 2 && (
+              <button
+                onClick={handleStartGame}
+                className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold uppercase tracking-wider text-sm shadow-lg shadow-emerald-600/25 flex justify-center items-center gap-2 transition-all active:scale-95 mb-3"
+              >
+                <Play className="w-4.5 h-4.5" /> Start Game
+              </button>
+            )}
 
             <button
               onClick={handleLeaveRoom}

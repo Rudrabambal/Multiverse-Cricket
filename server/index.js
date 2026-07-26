@@ -109,14 +109,19 @@ function tryResolveBall(room) {
     matchOver = true;
   }
 
-  gs.lastResult = result;
+  const fullResult = {
+    ...result,
+    batsmanChoice: gs.batsmanMove.choice,
+    bowlerChoices: gs.bowlerMove.choices,
+  };
+
+  gs.lastResult = fullResult;
   gs.phase = 'REVEAL';
   gs.batsmanMove = undefined;
   gs.bowlerMove = undefined;
-  gs.bowlerPowerCardUsed = gs.bowlerMove?.powerCard;
 
   broadcast(room.code, 'ballResult', {
-    result,
+    result: fullResult,
     scores: gs.scores,
     innings,
     inningsOver,
@@ -165,39 +170,96 @@ const server = http.createServer((req, res) => {
 
     if (!sseClients[roomCode]) sseClients[roomCode] = [];
     sseClients[roomCode].push({ playerId, res });
-    console.log(`📡 Player ${playerId} connected to room: ${roomCode}`);
+    console.log(`📡 Player ${playerId} connected/reconnected to room: ${roomCode}`);
 
-    // Send current game state if reconnecting mid-game
+    // ─── Catch-up: replay missed phase-transition events for reconnecting clients ───
     const room = rooms[roomCode];
-    if (room && room.gameState) {
-      const gs = room.gameState;
-      res.write(`event: gameState\ndata: ${JSON.stringify({
-        scores: gs.scores,
-        innings: gs.innings,
-        phase: gs.phase,
-        battingFirstId: gs.battingFirstId,
-        bowlingFirstId: gs.bowlingFirstId,
-        currentOptions: gs.currentOptions,
-      })}\n\n`);
+    if (room) {
+      const status = room.status || 'WAITING';
+
+      // Phase 1: Game was started by host → get client off the lobby screen
+      if (status === 'TOSS' || status === 'IN_GAME') {
+        res.write(`event: gameStart\ndata: ${JSON.stringify({
+          roomCode: room.code,
+          players: room.players,
+          config: room.config,
+        })}\n\n`);
+      }
+
+      // Phase 2: Toss decision was made → show the SUMMARY card in TossScreen
+      // Delayed 300ms so TossScreen has time to mount after the gameStart above
+      if ((status === 'TOSS' || status === 'IN_GAME') && room.toss && room.toss.battingFirstId) {
+        setTimeout(() => {
+          if (!res.destroyed) {
+            res.write(`event: tossCompleted\ndata: ${JSON.stringify({
+              toss: room.toss,
+              battingFirstId: room.toss.battingFirstId,
+              bowlingFirstId: room.toss.bowlingFirstId,
+            })}\n\n`);
+          }
+        }, 300);
+      }
+
+      // Phase 3: Match is in progress → transition client into GameScreen
+      // Delayed 700ms so TossScreen's listener is registered before matchStarted arrives
+      if (status === 'IN_GAME' && room.gameState) {
+        const gs = room.gameState;
+        setTimeout(() => {
+          if (!res.destroyed) {
+            res.write(`event: matchStarted\ndata: ${JSON.stringify({
+              tossData: room.toss,
+              battingFirstId: gs.battingFirstId,
+              bowlingFirstId: gs.bowlingFirstId,
+              currentOptions: gs.currentOptions,
+              scores: gs.scores,
+              innings: gs.innings,
+            })}\n\n`);
+          }
+        }, 700);
+
+        // Phase 3b: Also resync game state after client is on GameScreen
+        setTimeout(() => {
+          if (!res.destroyed) {
+            res.write(`event: gameState\ndata: ${JSON.stringify({
+              scores: gs.scores,
+              innings: gs.innings,
+              phase: gs.phase,
+              battingFirstId: gs.battingFirstId,
+              bowlingFirstId: gs.bowlingFirstId,
+              currentOptions: gs.currentOptions,
+            })}\n\n`);
+          }
+        }, 1200);
+      }
     }
 
+    // ─── FIX: filter by 'res' reference, NOT by playerId ───
+    // Filtering by playerId was the root bug: when EventSource auto-reconnects,
+    // the new connection gets added first, then the old close fires and wipes BOTH.
     req.on('close', () => {
-      console.log(`🔌 Player ${playerId} disconnected from room: ${roomCode}`);
+      console.log(`🔌 Player ${playerId} SSE connection closed for room: ${roomCode}`);
       if (sseClients[roomCode]) {
-        sseClients[roomCode] = sseClients[roomCode].filter(c => c.playerId !== playerId);
-        const room = rooms[roomCode];
-        if (room) {
-          if (sseClients[roomCode].length === 0) {
-            // cleanup after a delay to allow reconnect
-            setTimeout(() => {
-              if ((sseClients[roomCode] || []).length === 0) {
-                delete rooms[roomCode];
-                delete sseClients[roomCode];
-              }
-            }, 30000);
-          } else {
-            broadcast(roomCode, 'opponentLeft', { message: 'Your opponent disconnected.' });
-          }
+        // Remove only this specific closed connection object, not all for this player
+        sseClients[roomCode] = sseClients[roomCode].filter(c => c.res !== res);
+
+        if (sseClients[roomCode].length === 0) {
+          // All clients gone — clean up after delay to allow page refresh / reconnect
+          setTimeout(() => {
+            if ((sseClients[roomCode] || []).length === 0) {
+              delete rooms[roomCode];
+              delete sseClients[roomCode];
+              console.log(`🗑️  Room ${roomCode} cleaned up after inactivity`);
+            }
+          }, 30000);
+        } else {
+          // Wait 10s before telling the opponent — EventSource usually reconnects within 3s.
+          // If the player is back within that window, we skip the opponentLeft message.
+          setTimeout(() => {
+            const playerStillGone = !(sseClients[roomCode] || []).some(c => c.playerId === playerId);
+            if (playerStillGone) {
+              broadcast(roomCode, 'opponentLeft', { message: 'Your opponent disconnected.' });
+            }
+          }, 10000);
         }
       }
     });
@@ -220,12 +282,18 @@ const server = http.createServer((req, res) => {
         code,
         players: [{ id: hostId, name: data.playerName || 'Player 1', isHost: true }],
         config: { overs: data.overs || 1, wickets: data.wickets || 1 },
+        status: 'WAITING', // WAITING | TOSS | IN_GAME | FINISHED
         toss: null,
         gameState: null,
       };
       console.log(`🏠 Room created: ${code} by ${data.playerName}`);
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ roomCode: code, playerId: hostId }));
+      res.end(JSON.stringify({
+        roomCode: code,
+        playerId: hostId,
+        players: rooms[code].players,
+        config: rooms[code].config
+      }));
       return;
     }
 
@@ -249,7 +317,18 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ roomCode: code, playerId: joinerId, players: room.players, config: room.config }));
       broadcast(code, 'roomUpdated', { players: room.players, status: 'READY' });
-      broadcast(code, 'gameStart', { roomCode: code, players: room.players, config: room.config });
+      return;
+    }
+
+    // Start Game (triggered by host)
+    if (pathname === '/api/startGame' && req.method === 'POST') {
+      const room = rooms[data.roomCode?.toUpperCase()];
+      if (room) {
+        room.status = 'TOSS';
+        broadcast(room.code, 'gameStart', { roomCode: room.code, players: room.players, config: room.config });
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
 
@@ -293,6 +372,7 @@ const server = http.createServer((req, res) => {
       const room = rooms[data.roomCode?.toUpperCase()];
       if (room && room.toss) {
         const options = generateOptions();
+        room.status = 'IN_GAME';
         room.gameState = {
           innings: 1,
           phase: 'BATSMAN_SELECT', // BATSMAN_SELECT | BOWLER_SELECT | WAITING_BOTH | REVEAL | INNINGS_BREAK | GAME_OVER
@@ -385,6 +465,7 @@ const server = http.createServer((req, res) => {
           });
         } else if (gs.innings === 2 && (targetChased || isAllOut || isOverComplete)) {
           gs.phase = 'GAME_OVER';
+          room.status = 'FINISHED';
           broadcast(room.code, 'gameOver', {
             scores: gs.scores,
             battingFirst: data.battingFirst,

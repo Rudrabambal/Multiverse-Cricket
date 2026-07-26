@@ -1,13 +1,6 @@
 // ─────────────────────────────────────────────
-// Multiverse Cricket V3 — 4-Option Reality Engine
+// Multiverse Cricket — Reality Engine
 // ─────────────────────────────────────────────
-
-
-export const TRAITS = [
-  { id: 'AGGRESSIVE', name: 'Aggressive', description: 'Higher risk, higher reward option bounds', icon: '🔥' },
-  { id: 'DEFENSIVE', name: 'Defensive', description: 'Consistent low-risk scoring options', icon: '🛡️' },
-  { id: 'BALANCED', name: 'Balanced', description: 'Standard multiverse option spread', icon: '⚖️' }
-];
 
 export const POWER_CARDS = {
   BATSMAN: [

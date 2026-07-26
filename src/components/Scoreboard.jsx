@@ -10,6 +10,7 @@ const Scoreboard = ({
   balls,
   target,
   ballHistory,
+  maxOvers = 1,
 }) => {
 
   const renderHistoryBadge = (entry, idx) => {
@@ -29,7 +30,7 @@ const Scoreboard = ({
   };
 
   const getRemainingBalls = () => {
-    return Math.max(0, 6 - balls);
+    return Math.max(0, (maxOvers * 6) - balls);
   };
 
   const getChaseMessage = () => {

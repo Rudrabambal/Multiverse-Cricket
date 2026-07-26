@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import Confetti from 'react-confetti';
 import { formatOvers } from '../utils/gameLogic';
 import { saveMatchResult } from '../utils/storage';
 import { playRevealSound } from '../utils/audio';
@@ -25,11 +26,12 @@ const ResultScreen = ({
     subtext = `Won by ${margin} run${margin > 1 ? 's' : ''}`;
   } else if (p2Total > p1Total) {
     winner = bowlingFirst;
-    const wicketsRemaining = 1 - innings2.wickets;
+    const maxWkts = matchData.maxWickets || 1;
+    const wicketsRemaining = maxWkts - innings2.wickets;
     if (wicketsRemaining > 0) {
-      subtext = `Chased successfully in ${formatOvers(innings2.balls)} overs`;
+      subtext = `Chased successfully with ${wicketsRemaining} wicket${wicketsRemaining > 1 ? 's' : ''} in hand (${formatOvers(innings2.balls)} overs)`;
     } else {
-      subtext = `Won on higher score`;
+      subtext = `Chased successfully in ${formatOvers(innings2.balls)} overs`;
     }
   } else {
     winner = 'TIE';
