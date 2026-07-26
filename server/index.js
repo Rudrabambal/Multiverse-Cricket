@@ -38,8 +38,9 @@ function resolveBall({ batsmanChoice, bowlerChoices, batsmanPowerCard }) {
     isWicket = false;
     runs = 0;
     specialMessages.push('Safe Reality Activated: Wicket Prevented!');
-  }
-  if (!isWicket && batsmanPowerCard === 'DOUBLE_REALITY') {
+  } else if (isWicket) {
+    runs = 0; // Wicket: 0 runs awarded
+  } else if (batsmanPowerCard === 'DOUBLE_REALITY') {
     runs *= 2;
     specialMessages.push('Double Reality: Runs Doubled!');
   }
@@ -89,7 +90,13 @@ function tryResolveBall(room) {
   const score = gs.scores[innings];
   score.score += result.runs;
   if (result.isWicket) score.wickets += 1;
-  score.balls += 1;
+  
+  // Real Cricket Rule: Wides and No-Balls do not count as legal deliveries in the over count (unless wicket)
+  const isExtra = gs.batsmanMove.choice.includes('Wide') || gs.batsmanMove.choice.includes('No Ball');
+  if (!isExtra || result.isWicket) {
+    score.balls += 1;
+  }
+
   score.ballHistory.push({ outcome: result.outcome, symbol: result.symbol });
 
   const maxWickets = room.config.wickets;

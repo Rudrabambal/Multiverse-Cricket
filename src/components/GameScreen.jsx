@@ -314,8 +314,9 @@ const GameScreen = ({
         if (isWicket && batsmanPowerCard === 'SAFE_REALITY') {
           isWicket = false; runs = 0;
           specialMessages.push('Safe Reality Activated: Wicket Prevented!');
-        }
-        if (!isWicket && batsmanPowerCard === 'DOUBLE_REALITY') {
+        } else if (isWicket) {
+          runs = 0; // Wicket: 0 runs awarded
+        } else if (batsmanPowerCard === 'DOUBLE_REALITY') {
           runs *= 2;
           specialMessages.push('Double Reality: Runs Doubled!');
         }
@@ -332,13 +333,14 @@ const GameScreen = ({
         else playRevealSound();
       }, 400);
 
+      const isExtra = battingChoice.includes('Wide') || battingChoice.includes('No Ball');
       const newScores = {
         ...scores,
         [innings]: {
           ...scores[innings],
           score: scores[innings].score + result.runs,
           wickets: scores[innings].wickets + (result.isWicket ? 1 : 0),
-          balls: scores[innings].balls + 1,
+          balls: scores[innings].balls + ((!isExtra || result.isWicket) ? 1 : 0),
           ballHistory: [...scores[innings].ballHistory, { outcome: result.outcome, symbol: result.symbol }],
         }
       };

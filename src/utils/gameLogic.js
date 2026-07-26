@@ -65,10 +65,9 @@ export function resolveBall({
     isWicket = false;
     runs = 0;
     specialMessages.push("Safe Reality Activated: Wicket Prevented!");
-  }
-
-  // 3. Double Reality Card
-  if (!isWicket && batsmanPowerCard === 'DOUBLE_REALITY') {
+  } else if (isWicket) {
+    runs = 0; // Real cricket rule: 0 runs on a wicket
+  } else if (batsmanPowerCard === 'DOUBLE_REALITY') {
     runs *= 2;
     specialMessages.push("Double Reality: Runs Doubled!");
   }
