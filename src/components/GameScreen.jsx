@@ -333,14 +333,13 @@ const GameScreen = ({
         else playRevealSound();
       }, 400);
 
-      const isExtra = battingChoice.includes('Wide') || battingChoice.includes('No Ball');
       const newScores = {
         ...scores,
         [innings]: {
           ...scores[innings],
           score: scores[innings].score + result.runs,
           wickets: scores[innings].wickets + (result.isWicket ? 1 : 0),
-          balls: scores[innings].balls + ((!isExtra || result.isWicket) ? 1 : 0),
+          balls: scores[innings].balls + 1,
           ballHistory: [...scores[innings].ballHistory, { outcome: result.outcome, symbol: result.symbol }],
         }
       };
@@ -424,6 +423,8 @@ const GameScreen = ({
           wickets={curScore.wickets}
           balls={curScore.balls}
           target={innings === 2 ? scores[1].score + 1 : null}
+          firstInningsScore={scores[1]}
+          battingFirst={battingFirst}
           ballHistory={curScore.ballHistory}
           maxOvers={overs}
           maxWickets={wickets}

@@ -9,6 +9,8 @@ const Scoreboard = ({
   wickets,
   balls,
   target,
+  firstInningsScore,
+  battingFirst,
   ballHistory,
   maxOvers = 1,
 }) => {
@@ -91,20 +93,31 @@ const Scoreboard = ({
           </div>
         </div>
 
-        {/* Score */}
-        <div className="flex items-baseline gap-1">
-          <span className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 tracking-tight tabular-nums">
-            {score}
+        {/* Score & Balls */}
+        <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-1">
+            <span className="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400 tracking-tight tabular-nums">
+              {score}
+            </span>
+            <span className="text-xl text-slate-600">/</span>
+            <span className="text-2xl font-bold text-slate-300">{wickets}</span>
+          </div>
+          <span className="text-xs font-mono text-purple-300/80 font-bold bg-purple-950/40 px-2 py-1 rounded-lg border border-purple-500/20">
+            {balls}b
           </span>
-          <span className="text-xl text-slate-600">/</span>
-          <span className="text-2xl font-bold text-slate-300">{wickets}</span>
         </div>
       </div>
 
-      {/* Chase info */}
+      {/* Chase info & 1st Batsman Summary */}
       {innings === 2 && (
-        <div className="bg-slate-950/50 border border-slate-800/50 rounded-xl px-4 py-2.5 flex justify-between items-center">
-          <span className="text-xs text-slate-500 uppercase tracking-wider font-mono">Chase</span>
+        <div className="bg-slate-950/50 border border-slate-800/50 rounded-xl px-4 py-2.5 flex flex-col sm:flex-row justify-between items-center gap-2">
+          {firstInningsScore && (
+            <div className="text-xs font-mono text-slate-400 flex items-center gap-1.5">
+              <span className="text-slate-500 uppercase">1st Innings ({battingFirst || '1st Batter'}):</span>
+              <span className="text-purple-300 font-bold">{firstInningsScore.score}/{firstInningsScore.wickets}</span>
+              <span className="text-slate-400">({firstInningsScore.balls} balls)</span>
+            </div>
+          )}
           {getChaseMessage()}
         </div>
       )}

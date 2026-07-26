@@ -90,12 +90,7 @@ function tryResolveBall(room) {
   const score = gs.scores[innings];
   score.score += result.runs;
   if (result.isWicket) score.wickets += 1;
-  
-  // Real Cricket Rule: Wides and No-Balls do not count as legal deliveries in the over count (unless wicket)
-  const isExtra = gs.batsmanMove.choice.includes('Wide') || gs.batsmanMove.choice.includes('No Ball');
-  if (!isExtra || result.isWicket) {
-    score.balls += 1;
-  }
+  score.balls += 1;
 
   score.ballHistory.push({ outcome: result.outcome, symbol: result.symbol });
 
