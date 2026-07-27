@@ -3,5 +3,5 @@ services:
     name: multiverse-cricket
     env: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install && node node_modules/vite/bin/vite.js build
     startCommand: npm start
