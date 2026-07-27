@@ -5,7 +5,16 @@
 
 class RealtimeSocket {
   constructor() {
-    this.baseUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+    const envUrl = import.meta.env.VITE_SERVER_URL;
+    if (envUrl) {
+      this.baseUrl = envUrl;
+    } else if (typeof window !== 'undefined' && window.location.port === '5173') {
+      this.baseUrl = 'http://localhost:3001';
+    } else if (typeof window !== 'undefined' && window.location.origin) {
+      this.baseUrl = window.location.origin;
+    } else {
+      this.baseUrl = 'http://localhost:3001';
+    }
     this.eventSource = null;
     this.listeners = {};
     this.roomCode = null;
