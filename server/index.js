@@ -26,7 +26,7 @@ const rooms = {};
 const sseClients = {};
 
 // ─── Game Logic (server-authoritative) ───
-const OPTION_POOL = ['1 Run','2 Runs','3 Runs','4 Runs','6 Runs','Wide +1','No Ball +1','No Ball +2','No Ball +4','No Ball +6'];
+const OPTION_POOL = ['1 Run', '2 Runs', '3 Runs', '4 Runs', '6 Runs', 'Wide +2', 'No Ball +1', 'No Ball +2', 'No Ball +4', 'No Ball +6'];
 
 function parseRuns(opt) {
   switch (opt) {
@@ -35,7 +35,8 @@ function parseRuns(opt) {
     case '3 Runs': return 3;
     case '4 Runs': return 4;
     case '6 Runs': return 6;
-    case 'Wide +1': return 1;
+    case 'Wide +1': return 2;
+    case 'Wide +2': return 3;
     case 'No Ball +1': return 2;
     case 'No Ball +2': return 3;
     case 'No Ball +4': return 5;

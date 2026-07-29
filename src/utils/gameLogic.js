@@ -19,7 +19,7 @@ const OPTION_POOL = [
   '3 Runs',
   '4 Runs',
   '6 Runs',
-  'Wide +1',
+  'Wide +2',
   'No Ball +1',
   'No Ball +2',
   'No Ball +4',
@@ -33,7 +33,7 @@ export function parseRuns(optionString) {
     case '3 Runs': return 3;
     case '4 Runs': return 4;
     case '6 Runs': return 6;
-    case 'Wide +1': return 1;
+    case 'Wide +2': return 2;
     case 'No Ball +1': return 2;
     case 'No Ball +2': return 3;
     case 'No Ball +4': return 5;

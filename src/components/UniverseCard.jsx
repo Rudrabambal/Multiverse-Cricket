@@ -41,7 +41,7 @@ const UniverseCard = ({ card, onSelect, isSelected, isDisabled, showOutcome = tr
       case 'runs_6': return '6 Runs';
       case 'wicket': return 'Wicket!';
       case 'run_out': return 'Run Out!';
-      case 'wide': return 'Wide (+1 Run)';
+      case 'wide': return 'Wide (+2 Runs)';
       case 'no-ball': return 'No-Ball (+1 Run)';
       case 'dot': return 'Dot Ball';
       default: return outcome;
